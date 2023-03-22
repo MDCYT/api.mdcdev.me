@@ -3,7 +3,7 @@ const router = Router();
 const { join } = require('node:path');
 
 const HTTP = require(join("..", "..", "..", 'utils', 'discord', 'HTTP'));
-const Flags = require(join("..", "..", "..", 'utils', 'discord', 'Flags'));
+const Flags = require(join("..", "..", "..", 'utils', 'discord', 'flags'));
 
 router.get('/:id', (req, res) => {
     const { id } = req.params;
