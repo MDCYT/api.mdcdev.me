@@ -3,15 +3,10 @@ if(process.env.NODE_ENV !== 'production') require('dotenv').config();
 const express = require('express');
 const app = express();
 
-const endpoints = require('./utils/discord/endpoints');
-const HTTP = require('./utils/discord/HTTP');
-
 const fs = require('node:fs');
 const { join } = require('node:path');
 
 const port = process.env.PORT || 3000;
-
-global.__basedir = __dirname;
 
 app.get('/', (req, res) => res.json({ message: 'Hello World!' }));
 

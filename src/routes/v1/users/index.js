@@ -2,8 +2,8 @@ const { Router } = require('express');
 const router = Router();
 const { join } = require('node:path');
 
-const HTTP = require(join(__basedir, 'utils', 'discord', 'HTTP'));
-const Flags = require(join(__basedir, 'utils', 'discord', 'Flags'));
+const HTTP = require(join("..", "..", "..", 'utils', 'discord', 'HTTP'));
+const Flags = require(join("..", "..", "..", 'utils', 'discord', 'Flags'));
 
 router.get('/:id', (req, res) => {
     const { id } = req.params;
