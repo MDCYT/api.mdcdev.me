@@ -39,5 +39,9 @@ function requireRoutes(path, fullpath = "") {
 
 requireRoutes("routes");
 
+app.all('*', (req, res) => {
+    res.status(404).json({ message: 'Not Found' });
+});
+
 
 app.listen(port, () => console.log(`Example app listening on port ${port}!`));
