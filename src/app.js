@@ -8,7 +8,25 @@ const { join } = require('node:path');
 
 const port = process.env.PORT || 3000;
 
-app.get('/', (req, res) => res.json({ message: 'Hello World!' }));
+//Replace the X-Powered-By header with our own
+app.use((req, res, next) => {
+    res.setHeader('X-Powered-By', 'Discord API');
+    res.setHeader('X-Developer', 'MDC#0001');
+    res.setHeader('X-Developer-Website', 'https://mdcdev.me');
+    res.setHeader('X-Developer-Github', 'https://github.com/MDCYT');
+    res.setHeader('X-Developer-Twitter', 'https://twitter.com/MDCYT');
+    res.setHeader('X-Developer-Discord', 'https://discord.gg/dae');
+    next();
+});
+
+//Allow CORS    
+app.use((req, res, next) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, PATCH, DELETE');
+    res.setHeader('Access-Control-Allow-Headers', 'X-Requested-With,content-type');
+    res.setHeader('Access-Control-Allow-Credentials', true);
+    next();
+});
 
 //We have a folder called "routes", and inside that folder we have a folders called "v1", "v2", "v3" and more, inside those folders we have a folder called "users", "guilds" and more, inside those folders we have a file called "@me.js", "index.js" and more
 //This is how we require all the files in the "routes" folder
@@ -34,8 +52,11 @@ function requireRoutes(path, fullpath = "") {
 
 requireRoutes("routes");
 
+
+app.get('/', (req, res) => res.json({ message: 'Welcome to the MDCDEV API', documentation: 'https://docs.api.mdcdev.me' }));
+
 app.all('*', (req, res) => {
-    res.status(404).json({ message: 'Not Found' });
+    res.status(404).json({ message: 'Not Found, check the documentation for more info: https://docs.api.mdcdev.me' });
 });
 
 
