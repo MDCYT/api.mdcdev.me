@@ -1,69 +1,130 @@
 const { Router } = require('express');
 const router = Router();
 const { join } = require('node:path');
+const rateLimit = require('express-rate-limit')
 
 const HTTP = require(join("..", "..", "..", 'utils', 'discord', 'HTTP'));
-const Flags = require(join("..", "..", "..", 'utils', 'discord', 'flags'));
+const {UserFlags} = require(join("..", "..", "..", 'utils', 'discord', 'flags'));
+const { Image } = require(join("..", "..", "..", 'utils', 'discord', 'images'));
+const { Cache } = require(join("..", "..", "..", 'utils', 'cache'));
+const RedisRateLimit = require(join("..", "..", "..", 'utils', 'rate-limit'));
+const { statusCodeHandler } = require(join("..", "..", "..", 'utils', 'status-code-handler'));
 
-router.get('/:id', (req, res) => {
+const cache = new Cache("users", 0, 60 * 60 * 24)
+
+const limit = rateLimit({
+    windowMs: 1000 * 60 * 60, // 1 hour window
+    max: (req, res) => {
+        return 50;
+    }, // start blocking after 50 requests
+    message: (req, res) => {
+        statusCodeHandler({ statusCode: 10001 }, res);
+    },
+    skip: (req, res) => {
+        //If the :id is process.env.OWNER_DISCORD_ID, skip the rate limit
+        if (req.params.id === process.env.OWNER_DISCORD_ID) return true;
+        //If the request is from me, skip the rate limit
+        const ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+        if (ip === 'localhost' || ip === '::1') {
+            return true;
+        } 
+        
+        return false;
+    },
+    standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
+	legacyHeaders: false, // Disable the `X-RateLimit-*` headers
+    store: RedisRateLimit
+})
+
+router.get('/:id', limit, async (req, res) => {
     const { id } = req.params;
     const http = new HTTP(process.env.DISCORD_BOT_TOKEN);
-    http.get('USER_URL', "path", id)
-        .then(response => {
-            let data = response.data
+    let data = await cache.get(id);
+    if (!data) await http.get('USER_URL', "path", id).then(async response => {
+        //If the response is 200, add the user to the cache
+        if (response.status === 200) {
+            await cache.set(id, response.data);
+            data = response.data;
+        } else {
+            return statusCodeHandler({ statusCode: response.status }, res);
+        }
+    }).catch(err => {
+        //a
+    });
 
-            //Show the user's flags
-            let flags = new Flags(data.public_flags);
+    if(!data) return statusCodeHandler({ statusCode: 11001 }, res);
 
-            //If user has a banner, or a avatar with "a_" in front of it, add "NITRO" to the flags
-            if (data.banner || data.avatar?.startsWith("a_")) flags.addFlag("NITRO");
+    //If the user dont have a bot property, add it to the user object
+    if (!data.bot) data.bot = false;
 
-            //If the user have DISCORD_PARTNER or DISCORD_EMPLOYEE, add "NITRO" to the flags
-            if ((flags.hasFlag("DISCORD_PARTNER") || flags.hasFlag("DISCORD_EMPLOYEE")) && !flags.hasFlag("NITRO")) flags.addFlag("NITRO");
+    //If the user has a username and discriminator, add it to the user object
+    data.tag = `${data.username}#${data.discriminator}`;
 
-            //Add the flags to the user object
-            data.flags = flags.getFlags();
+    //Show the user's flags
+    let flags = new UserFlags(data.public_flags);
 
-            //Convert hash of avatar and banner to a url
-            //If the banner or avatar starts with "a_", it's animated, so add ".gif" to the end of the url
-            let avatarURL = data.avatar ? `https://cdn.discordapp.com/avatars/${data.id}/${data.avatar}${data.avatar.startsWith("a_") ? ".gif" : ".png"}` : `https://cdn.discordapp.com/embed/avatars/${Number(data.discriminator) % 5}.png`;
-            let bannerURL = data.banner ? `https://cdn.discordapp.com/banners/${data.id}/${data.banner}${data.banner.startsWith("a_") ? ".gif" : ".png"}` : null;
+    //If user has a banner, or a avatar with "a_" in front of it, add "NITRO" to the flags
+    if (data.banner || data.avatar?.startsWith("a_")) flags.addFlag("NITRO");
 
-            //Add the avatar and banner url to the user object
-            data.avatarURL = avatarURL;
-            data.bannerURL = bannerURL;
+    //If the user have DISCORD_PARTNER or DISCORD_EMPLOYEE, add "NITRO" to the flags
+    if ((flags.hasFlag("DISCORD_PARTNER") || flags.hasFlag("DISCORD_EMPLOYEE")) && !flags.hasFlag("NITRO")) flags.addFlag("NITRO");
 
-            //Now add a object called "avatarURLs" and bannerURLs to the user object, and add all the sizes of the avatar and banner
-            data.avatarURLs = {
-                "16": avatarURL ? avatarURL.concat("?size=16") : null,
-                "32": avatarURL ? avatarURL.concat("?size=32") : null,
-                "64": avatarURL ? avatarURL.concat("?size=64") : null,
-                "128": avatarURL ? avatarURL.concat("?size=128") : null,
-                "256": avatarURL ? avatarURL.concat("?size=256") : null,
-                "512": avatarURL ? avatarURL.concat("?size=512") : null,
-                "1024": avatarURL ? avatarURL.concat("?size=1024") : null,
-                "2048": avatarURL ? avatarURL.concat("?size=2048") : null,
-                "4096": avatarURL ? avatarURL.concat("?size=4096") : null
-            };
-            data.bannerURLs = {
-                "16": bannerURL ? bannerURL.concat("?size=16") : null,
-                "32": bannerURL ? bannerURL.concat("?size=32") : null,
-                "64": bannerURL ? bannerURL.concat("?size=64") : null,
-                "128": bannerURL ? bannerURL.concat("?size=128") : null,
-                "256": bannerURL ? bannerURL.concat("?size=256") : null,
-                "512": bannerURL ? bannerURL.concat("?size=512") : null,
-                "1024": bannerURL ? bannerURL.concat("?size=1024") : null,
-                "2048": bannerURL ? bannerURL.concat("?size=2048") : null,
-                "4096": bannerURL ? bannerURL.concat("?size=4096") : null
-            };
+    //Add the flags to the user object
+    data.flags = flags.getFlags();
 
-            //Return the user object
-            res.json(data);
-        })
-        .catch(_error => {
-            console.error(_error);
-            return res.status(500).json({ message: "Internal server error" });
-        })
+    //Convert hash of avatar and banner to a url
+    //If the banner or avatar starts with "a_", it's animated, so add ".gif" to the end of the url
+    let avatar = data.avatar ? new Image("UserAvatar", data.id, data.avatar) : null;
+    let banner = data.banner ? new Image("UserBanner", data.id, data.banner) : null;
+
+    let avatarURL = avatar ? avatar.url : null;
+    let bannerURL = banner ? banner.url : null;
+
+    //Add the avatar and banner url to the user object
+    data.avatarURL = avatarURL;
+    data.bannerURL = bannerURL;
+
+    //Now add a object called "avatarURLs" and bannerURLs to the user object, and add all the sizes of the avatar and banner
+    if (avatarURL) data.avatarURLs = avatar.sizes;
+    if (bannerURL) data.bannerURLs = banner.sizes;
+
+    //Get with the Discord Snowflake the date of when the user was created
+    let date = new Date(parseInt(data.id) / 4194304 + 1420070400000);
+
+    //Add the date to the user object
+    data.createdAt = date.toISOString();
+    data.createdAtTimestamp = date.getTime();
+
+    //Rename avatar_decoration to avatarDecoration
+    data.avatarDecoration = data.avatar_decoration;
+    delete data.avatar_decoration;
+
+    //Rename banner_color to bannerColor
+    data.bannerColor = data.banner_color;
+    delete data.banner_color;
+
+    //Rename accent_color to accentColor
+    data.accentColor = data.accent_color;
+    delete data.accent_color;
+
+    //Rename display_name to displayName
+    data.displayName = data.display_name;
+    delete data.display_name;
+
+    //Rename global_name to globalName
+    data.globalName = data.global_name;
+    delete data.global_name;
+
+    //Rename public_flags to publicFlags
+    data.publicFlags = data.public_flags;
+    delete data.public_flags;
+
+    //Order all properties in the user object alphabetically, except for the id
+    data = Object.fromEntries(Object.entries(data).sort(([a], [b]) => a.localeCompare(b)));
+
+    //Return the user object
+    res.json(data);
+
 });
 
 module.exports = router;
