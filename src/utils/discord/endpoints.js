@@ -2,5 +2,11 @@ module.exports = {
     BASE_URL: process.env.DISCORD_URL_BASE ? process.env.DISCORD_URL_BASE : 'https://discord.com/api/v10',
     USER_URL(id) {
         return `${this.BASE_URL}/users/${id}`;
-    }
+    },
+    GUILD_URL(id) {
+        return `${this.BASE_URL}/guilds/${id}`;
+    },
+    INVITE_URL(code, scheduledEventID) {
+        return `${this.BASE_URL}/invites/${code}?with_counts=true&with_expiration=true` + (scheduledEventID ? `&scheduled_event_id=${scheduledEventID}` : '');
+    },
 };
