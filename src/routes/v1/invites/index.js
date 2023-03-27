@@ -165,18 +165,14 @@ router.get('/:id', limit, async (req, res) => {
         delete data.guild.nsfw_level;
 
 
-        //If premium_subscription_count, add premiumSubscriptionCount property and delete premium_subscription_count
-        if (data.guild.premium_subscription_count) {
-            data.guild.premiumSubscriptionCount = data.guild.premium_subscription_count;
-            data.guild.premiumLevel = data.guild.premium_subscription_count >= 15 ? 3 : data.guild.premium_subscription_count >= 7 ? 2 : data.guild.premium_subscription_count >= 2 ? 1 : 0;
-            delete data.guild.premium_subscription_count;
-        }
+        //If premium_subscription_count, add premiumSubscriptionCount property and delete 
+        data.guild.premiumSubscriptionCount = data.guild.premium_subscription_count;
+        data.guild.premiumLevel = data.guild.premium_subscription_count >= 15 ? 3 : data.guild.premium_subscription_count >= 7 ? 2 : data.guild.premium_subscription_count >= 2 ? 1 : 0;
+        delete data.guild.premium_subscription_count;
 
         //If verification_level, add verificationLevel property and delete verification_level
-        if (data.guild.verification_level) {
-            data.guild.verificationLevel = data.guild.verification_level;
-            delete data.guild.verification_level;
-        }
+        data.guild.verificationLevel = data.guild.verification_level;
+        delete data.guild.verification_level;
 
     }
 
