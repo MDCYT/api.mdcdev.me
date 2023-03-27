@@ -6,6 +6,8 @@ const app = express();
 const fs = require('node:fs');
 const { join } = require('node:path');
 
+const { statusCodeHandler } = require(join(__dirname, 'utils', 'status-code-handler'));
+
 const port = process.env.PORT || 3000;
 
 //Replace the X-Powered-By header with our own
@@ -56,7 +58,7 @@ requireRoutes("routes");
 app.get('/', (req, res) => res.json({ message: 'Welcome to the MDCDEV API', documentation: 'https://docs.api.mdcdev.me' }));
 
 app.all('*', (req, res) => {
-    res.status(404).json({ message: 'Not Found, check the documentation for more info: https://docs.api.mdcdev.me' });
+    statusCodeHandler({ statusCode: 10005 }, res);
 });
 
 
