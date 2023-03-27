@@ -207,13 +207,18 @@ router.get('/:id', limit, async (req, res) => {
     }
 
     //If have expires_at, add a property "expiresIn" with the value of the difference between the expires_at and the current time
-    if (data.expires_at) {
+    if(data.expires_at) {
         data.expiresIn = new Date(data.expires_at) - Date.now();
         data.expiresAtTimestamp = new Date(data.expires_at).getTime();
         data.expiresAt = new Date(data.expires_at).toISOString();
-
-        delete data.expires_at;
+    } else {
+        //expiresIn is -1 if the invite is permanent
+        data.expiresIn = -1;
+        data.expiresAtTimestamp = -1;
+        //expiresAt is in 12 months if the invite is permanent
+        data.expiresAt = new Date(Date.now() + 31536000000).toISOString();
     }
+    delete data.expires_at;
 
     //If have approximate_member_count, add a property "approximateMemberCount" with the value of the approximate_member_count
     if (data.approximate_member_count) {
