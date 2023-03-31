@@ -265,7 +265,19 @@ const cdnEndpoints = {
      */
     GuildMemberBanner(guildID, userID, memberBannerHash) {
         return `guilds/${guildID}/users/${userID}/banners/${memberBannerHash}`;
-    }
+    },
+
+    /**
+     * @param {string} guildID
+     * @param {string} homeHeaderHash
+     * @returns {string}
+     * @example
+     * // returns "home-headers/603970300668805120/8f48d93ccb430b4d9fa99afbe64b9660"
+     * GuildHomeHeader("603970300668805120", "8f48d93ccb430b4d9fa99afbe64b9660")
+     */
+    GuildHomeHeader(guildID, homeHeaderHash) {
+        return `home-headers/${guildID}/${homeHeaderHash}`;
+    },
 };
 
 /**

@@ -19,6 +19,7 @@ class UserFlags {
             "VERIFIED_BOT_DEVELOPER": 1 << 17,
             "CERTIFIED_MODERATOR": 1 << 18,
             "BOT_HTTP_INTERACTIONS": 1 << 19,
+            "SPAMMER": 1 << 20,
             "ACTIVE_DEVELOPER": 1 << 22,
             "NITRO": 1n << 123n,
         }

@@ -4,20 +4,20 @@ const { join } = require('node:path');
 const rateLimit = require('express-rate-limit')
 const axios = require('axios');
 
-const HTTP = require(join("..", "..", "..", 'utils', 'discord', 'HTTP'));
-const { Image } = require(join("..", "..", "..", 'utils', 'discord', 'images'));
-const { ApplicationFlags } = require(join("..", "..", "..", 'utils', 'discord', 'flags'));
-const RedisRateLimit = require(join("..", "..", "..", 'utils', 'rate-limit'));
-const { statusCodeHandler } = require(join("..", "..", "..", 'utils', 'status-code-handler'));
-const { Cache } = require(join("..", "..", "..", 'utils', 'cache'));
-const { sortObject } = require(join("..", "..", "..", 'utils', 'utils'));
+const HTTP = require(join(__basedir, 'utils', 'discord', 'HTTP'));
+const { Image } = require(join(__basedir, 'utils', 'discord', 'images'));
+const { ApplicationFlags } = require(join(__basedir, 'utils', 'discord', 'flags'));
+const RedisRateLimit = require(join(__basedir, 'utils', 'rate-limit'));
+const { statusCodeHandler } = require(join(__basedir, 'utils', 'status-code-handler'));
+const { Cache } = require(join(__basedir, 'utils', 'cache'));
+const { sortObject } = require(join(__basedir, 'utils', 'utils'));
 
-const cache = new Cache("guilds", 1, 60 * 60 * 24)
+const cache = new Cache("applications", 1, 60 * 60 * 24)
 
 const limit = rateLimit({
     windowMs: 1000 * 60 * 60, // 1 hour window
     max: (req, res) => {
-        return 25;
+        return 50;
     }, // start blocking after 25 requests
     message: (req, res) => {
         statusCodeHandler({ statusCode: 10001 }, res);
@@ -34,9 +34,10 @@ const limit = rateLimit({
 
 router.get('/:id', limit, async (req, res) => {
     const { id } = req.params;
+    const { event } = req.query;
     const http = new HTTP(process.env.DISCORD_BOT_TOKEN);
     let data = await cache.get(id);
-    if (!data) await http.get('INVITE_URL', "path", id).then(async response => {
+    if (!data) await http.get('INVITE_URL', "path", id, event).then(async response => {
         //If the response is 200, add the user to the cache
         if (response.status === 200) {
             //Check if have expires_at
@@ -217,85 +218,109 @@ router.get('/:id', limit, async (req, res) => {
     delete data.expires_at;
 
     //If have approximate_member_count, add a property "approximateMemberCount" with the value of the approximate_member_count
-    if (data.approximate_member_count) {
-        data.approximateMemberCount = data.approximate_member_count;
-        delete data.approximate_member_count;
-    }
+    data.approximateMemberCount = data.approximate_member_count || 0;
+    delete data.approximate_member_count;
 
     //If have approximate_presence_count, add a property "approximatePresenceCount" with the value of the approximate_presence_count
-    if (data.approximate_presence_count) {
-        data.approximatePresenceCount = data.approximate_presence_count;
-        delete data.approximate_presence_count;
-    }
+    data.approximatePresenceCount = data.approximate_presence_count || 0;
+    delete data.approximate_presence_count;
 
     if (data.target_application) {
-        data.targetApplication = data.target_application;
-        delete data.target_application;
-
-        data.targetApplication.createdAt = new Date(parseInt(data.targetApplication.id) / 4194304 + 1420070400000).toISOString();
-        data.targetApplication.createdAtTimestamp = new Date(parseInt(data.targetApplication.id) / 4194304 + 1420070400000).getTime();
-
-        let response = await axios.get(req.protocol + "://" + req.get("host") + "/v1/users/" + data.targetApplication.id);
+        let response = await axios.get(req.protocol + "://" + req.get("host") + "/v1/applications/" + data.target_application.id);
 
         if (response.status === 200) {
-            data.targetApplication.user = response.data;
+            data.targetApplication = response.data;
+        } else {
+            data.targetApplication = data.target_application;
         }
 
-        //Get the flags of the application
-        let flags = new ApplicationFlags(data.targetApplication.flags);
-
-        //Convert flags to publicFlags
-        data.targetApplication.publicFlags = data.targetApplication.flags;
-        delete data.targetApplication.flags;
-
-        //Add flags to the application
-        data.targetApplication.flags = flags.getFlags();
-
-        //If exist max_participants, add a property "maxParticipants" with the value of the max_participants
-        if (data.targetApplication.max_participants) {
-            data.targetApplication.maxParticipants = data.targetApplication.max_participants;
-            delete data.targetApplication.max_participants;
-        }
-
-        //Add a property "isBotPublic" with the value of the bot_public
-        data.targetApplication.isBotPublic = data.targetApplication.bot_public;
-        delete data.targetApplication.bot_public;
-
-        //Add a property "isBotRequireCodeGrant" with the value of the bot_require_code_grant
-        data.targetApplication.isBotRequireCodeGrant = data.targetApplication.bot_require_code_grant;
-        delete data.targetApplication.bot_require_code_grant;
-
-        //if cover_image is not null, add a property "coverImage" with the value of the cover_image
-        if (data.targetApplication.cover_image) {
-            data.targetApplication.coverImageURL = new Image("ApplicationCover", data.targetApplication.id, data.targetApplication.cover_image).url;
-            data.targetApplication.coverImageURLs = new Image("ApplicationCover", data.targetApplication.id, data.targetApplication.cover_image).sizes;
-            data.targetApplication.coverImage = data.targetApplication.cover_image
-            delete data.targetApplication.cover_image;
-        }
-
-        //If have privacy_policy_url add a property "privacyPolicyURL" with the value of the privacy_policy_url
-        if (data.targetApplication.privacy_policy_url) {
-            data.targetApplication.privacyPolicyURL = data.targetApplication.privacy_policy_url;
-            delete data.targetApplication.privacy_policy_url;
-        }
-
-        //If have terms_of_service_url add a property "termsOfServiceURL" with the value of the terms_of_service_url
-        if (data.targetApplication.terms_of_service_url) {
-            data.targetApplication.termsOfServiceURL = data.targetApplication.terms_of_service_url;
-            delete data.targetApplication.terms_of_service_url;
-        }
-
-        //If verify_key is not null, add a property "verifyKey" with the value of the verify_key
-        if (data.targetApplication.verify_key) {
-            data.targetApplication.verifyKey = data.targetApplication.verify_key;
-            delete data.targetApplication.verify_key;
-        }
+        delete data.target_application;
     }
 
     //If target_type is 1, add a property "targetType" with the value of the target_type
     if (data.target_type) {
         data.targetType = data.target_type;
         delete data.target_type;
+    }
+
+    //If exists guild_scheduled_event
+    if (data.guild_scheduled_event) {
+        if ((data.guild_scheduled_event.creator && data.guild_scheduled_event.creator?.id) || data.guild_scheduled_event.creator_id) {
+            let id = data.guild_scheduled_event.creator?.id || data.guild_scheduled_event.creator_id;
+            let response = await axios.get(req.protocol + "://" + req.get("host") + "/v1/users/" + id);
+
+            if (response.status === 200) {
+                if (data.guild_scheduled_event.creator) {
+                    delete data.guild_scheduled_event.creator;
+                }
+                data.guild_scheduled_event.creator = response.data;
+            }
+
+            data.guild_scheduled_event.creatorId = data.guild_scheduled_event.creator?.id || data.guild_scheduled_event.creator_id;
+            delete data.guild_scheduled_event.creator_id;
+        }
+
+        // With discord snowflake, get the date of when the guild scheduled event was created
+        let date = new Date(parseInt(data.guild_scheduled_event.id) / 4194304 + 1420070400000);
+
+        //Add the date to the guild scheduled event object
+        data.guild_scheduled_event.createdAt = date.toISOString();
+        data.guild_scheduled_event.createdAtTimestamp = date.getTime();
+
+        //Rename guild_id to guildID
+        data.guild_scheduled_event.guildId = data.guild_scheduled_event.guild_id;
+        delete data.guild_scheduled_event.guild_id;
+
+        //Rename channel_id to channelID
+        data.guild_scheduled_event.channelId = data.guild_scheduled_event.channel_id;
+        delete data.guild_scheduled_event.channel_id;
+
+        //Rename scheduled_start_time to scheduledStartTime, and add a property scheduledStartTimeTimestamp with the value of the scheduledStartTime
+        data.guild_scheduled_event.scheduledStartTime = data.guild_scheduled_event.scheduled_start_time;
+        data.guild_scheduled_event.scheduledStartTimeTimestamp = new Date(data.guild_scheduled_event.scheduled_start_time).getTime();
+        delete data.guild_scheduled_event.scheduled_start_time;
+
+        //Rename scheduled_end_time to scheduledEndTime, and add a property scheduledEndTimeTimestamp with the value of the scheduledEndTime
+        data.guild_scheduled_event.scheduledEndTime = data.guild_scheduled_event.scheduled_end_time;
+        data.guild_scheduled_event.scheduledEndTimeTimestamp = new Date(data.guild_scheduled_event.scheduled_end_time).getTime();
+        delete data.guild_scheduled_event.scheduled_end_time;
+
+        //Make a property "eventDuration" with the value of the difference between the scheduledEndTime and the scheduledStartTime
+        data.guild_scheduled_event.eventDurationTimestamp = data.guild_scheduled_event.scheduledEndTimeTimestamp - data.guild_scheduled_event.scheduledStartTimeTimestamp;
+        data.guild_scheduled_event.eventDuration = new Date(data.guild_scheduled_event.eventDurationTimestamp).toISOString();
+
+        //Rename privacy_level to privacyLevel
+        data.guild_scheduled_event.privacyLevel = data.guild_scheduled_event.privacy_level;
+        delete data.guild_scheduled_event.privacy_level;
+
+        //Rename entity_type to entityType
+        data.guild_scheduled_event.entityType = data.guild_scheduled_event.entity_type;
+        delete data.guild_scheduled_event.entity_type;
+
+        //Rename entity_id to entityID
+        data.guild_scheduled_event.entityId = data.guild_scheduled_event.entity_id;
+        delete data.guild_scheduled_event.entity_id;
+
+        //Rename entity_metadata to entityMetadata
+        data.guild_scheduled_event.entityMetadata = data.guild_scheduled_event.entity_metadata;
+        delete data.guild_scheduled_event.entity_metadata;
+
+        //Rename user_count to userCount
+        data.guild_scheduled_event.userCount = data.guild_scheduled_event.user_count;
+        delete data.guild_scheduled_event.user_count;
+
+        //get the Image URL
+        if (data.guild_scheduled_event.image) {
+            data.guild_scheduled_event.imageURL = new Image("ScheduledEventCover", data.guild_scheduled_event.id, data.guild_scheduled_event.image).url;
+            data.guild_scheduled_event.imageURLs = new Image("ScheduledEventCover", data.guild_scheduled_event.id, data.guild_scheduled_event.image).sizes;
+        }
+
+        data.guild_scheduled_event.skuIds = data.guild_scheduled_event.sku_ids;
+        delete data.guild_scheduled_event.sku_ids;
+
+        //Rename guild_scheduled_event to guildScheduledEvent
+        data.guildScheduledEvent = data.guild_scheduled_event;
+        delete data.guild_scheduled_event;
     }
 
     data.inviteURL = "https://discord.gg/" + data.code;

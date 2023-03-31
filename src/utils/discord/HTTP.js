@@ -8,10 +8,10 @@ class HTTP {
         this.token = token;
     }
 
-    get(endpoint, type, params) {
+    get(endpoint, type, ...params) {
         switch (type) {
             case 'path':
-                return axios.get(endpoints[endpoint](params), {
+                return axios.get(endpoints[endpoint](...params), {
                     headers: {
                         Authorization: `Bot ${this.token}`,
                         'User-Agent': thePackage.name + '/' + thePackage.version,
@@ -20,7 +20,7 @@ class HTTP {
                 });
             case 'query':
                 return axios.get(endpoints[endpoint], {
-                    params,
+                    ...params,
                     headers: {
                         Authorization: `Bot ${this.token}`,
                         'User-Agent': thePackage.name + '/' + thePackage.version,

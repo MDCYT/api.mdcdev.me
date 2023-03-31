@@ -3,12 +3,12 @@ const router = Router();
 const { join } = require('node:path');
 const rateLimit = require('express-rate-limit')
 
-const HTTP = require(join("..", "..", "..", 'utils', 'discord', 'HTTP'));
-const {UserFlags} = require(join("..", "..", "..", 'utils', 'discord', 'flags'));
-const { Image } = require(join("..", "..", "..", 'utils', 'discord', 'images'));
-const { Cache } = require(join("..", "..", "..", 'utils', 'cache'));
-const RedisRateLimit = require(join("..", "..", "..", 'utils', 'rate-limit'));
-const { statusCodeHandler } = require(join("..", "..", "..", 'utils', 'status-code-handler'));
+const HTTP = require(join(__basedir, 'utils', 'discord', 'HTTP'));
+const {UserFlags} = require(join(__basedir, 'utils', 'discord', 'flags'));
+const { Image } = require(join(__basedir, 'utils', 'discord', 'images'));
+const { Cache } = require(join(__basedir, 'utils', 'cache'));
+const RedisRateLimit = require(join(__basedir, 'utils', 'rate-limit'));
+const { statusCodeHandler } = require(join(__basedir, 'utils', 'status-code-handler'));
 
 const cache = new Cache("users", 0, 60 * 60 * 24)
 
@@ -62,6 +62,9 @@ router.get('/:id', limit, async (req, res) => {
 
     //Show the user's flags
     let flags = new UserFlags(data.public_flags);
+
+    //If system is true, add "SYSTEM" to the flags
+    if (data.system) flags.addFlag("SYSTEM");
 
     //If user has a banner, or a avatar with "a_" in front of it, add "NITRO" to the flags
     if (data.banner || data.avatar?.startsWith("a_")) flags.addFlag("NITRO");
@@ -118,6 +121,14 @@ router.get('/:id', limit, async (req, res) => {
     //Rename public_flags to publicFlags
     data.publicFlags = data.public_flags;
     delete data.public_flags;
+
+    //Rename bot to isBot
+    data.isBot = data.bot || false;
+    delete data.bot;
+
+    //Rename system to isSystem
+    data.isSystem = data.system || false;
+    delete data.system;
 
     //Order all properties in the user object alphabetically, except for the id
     data = Object.fromEntries(Object.entries(data).sort(([a], [b]) => a.localeCompare(b)));

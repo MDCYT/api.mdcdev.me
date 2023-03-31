@@ -4,9 +4,13 @@ module.exports = {
         return `${this.BASE_URL}/users/${id}`;
     },
     GUILD_URL(id) {
-        return `${this.BASE_URL}/guilds/${id}`;
+        return `${this.BASE_URL}/guilds/${id}?with_counts=true`;
     },
     INVITE_URL(code, scheduledEventID) {
-        return `${this.BASE_URL}/invites/${code}?with_counts=true&with_expiration=true` + (scheduledEventID ? `&scheduled_event_id=${scheduledEventID}` : '');
+        console.log(`${this.BASE_URL}/invites/${code}?with_counts=true&with_expiration=true` + (scheduledEventID ? `&guild_scheduled_event_id=${scheduledEventID}` : ''));
+        return `${this.BASE_URL}/invites/${code}?with_counts=true&with_expiration=true` + (scheduledEventID ? `&guild_scheduled_event_id=${scheduledEventID}` : '');
     },
+    APPLICATION_URL(id) {
+        return `${this.BASE_URL}/applications/${id}/rpc`;
+    }
 };
