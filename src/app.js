@@ -10,6 +10,8 @@ const { statusCodeHandler } = require(join(__dirname, 'utils', 'status-code-hand
 
 const port = process.env.PORT || 3000;
 
+global.__basedir = __dirname;
+
 //Replace the X-Powered-By header with our own
 app.use((req, res, next) => {
     res.setHeader('X-Powered-By', 'Discord API');
