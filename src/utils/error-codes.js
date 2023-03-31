@@ -94,10 +94,26 @@ const inviteErrorCodes = {
     }
 }
 
+const guildErrorCodes = {
+    13001: {
+        message: "Guild not found",
+        code: 404
+    },
+    13002: {
+        message: "Guild is unavailable",
+        code: 503
+    },
+    13003: {
+        message: "Guild is not available",
+        code: 503
+    }
+}
+
 const customErrorCodes = {
     ...errorCodes,
     ...genericErrorCodes,
     ...userErrorCodes,
+    ...guildErrorCodes,
     ...inviteErrorCodes
 }
 
