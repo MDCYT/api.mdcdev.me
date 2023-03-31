@@ -46,7 +46,7 @@ router.get('/', limit, async (req, res) => {
     }
     );
 
-    if(!data) return statusCodeHandler({ statusCode: 11001 }, res);
+    if(!data) return statusCodeHandler({ statusCode: 503 }, res);
 
     return res.json(formatGuildRollouts(data));
 
