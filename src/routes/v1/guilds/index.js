@@ -6,12 +6,14 @@ const axios = require('axios');
 
 const HTTP = require(join(__basedir, 'utils', 'discord', 'HTTP'));
 const { Image } = require(join(__basedir, 'utils', 'discord', 'images'));
+const { RoleFlags } = require(join(__basedir, 'utils', 'discord', 'flags'));
+const { UserPermissions } = require(join(__basedir, 'utils', 'discord', 'permissions'));
 const RedisRateLimit = require(join(__basedir, 'utils', 'rate-limit'));
 const { statusCodeHandler } = require(join(__basedir, 'utils', 'status-code-handler'));
 const { Cache } = require(join(__basedir, 'utils', 'cache'));
 const { sortObject } = require(join(__basedir, 'utils', 'utils'));
 
-const cache = new Cache("guilds", 1, 60 * 60 * 3)
+const cache = new Cache("guilds", 3, 60 * 60 * 3)
 
 const limit = rateLimit({
     windowMs: 1000 * 60 * 60, // 1 hour window
@@ -54,14 +56,79 @@ router.get('/:id', limit, async (req, res) => {
 
     if(data.emojis) {
         data.emojis.forEach(emoji => {
-            emoji.requiredColons = emoji.require_colons;
+            emoji.isRequiredColons = emoji.require_colons;
             delete emoji.require_colons;
 
-            emoji.managedByIntegration = emoji.managed;
+            emoji.isManagedByIntegration = emoji.managed;
             delete emoji.managed;
 
             emoji.URL = new Image("CustomEmoji", emoji.id, { format: emoji.animated ? "gif" : "png" }).url;
             emoji.URLs = new Image("CustomEmoji", emoji.id, { format: emoji.animated ? "gif" : "png" }).sizes;
+
+            let date = new Date(parseInt(emoji.id) / 4194304 + 1420070400000);
+            emoji.createdAt = date;
+            emoji.createdTimestamp = date.getTime();
+        });
+    }
+
+    if(data.stickers) {
+        data.stickers.forEach(sticker => {
+            sticker.formatType = sticker.format_type;
+            delete sticker.format_type;
+
+            sticker.guildId = sticker.guild_id;
+            delete sticker.guild_id;
+
+            sticker.isAvailable = sticker.available;
+            delete sticker.available;
+
+            let date = new Date(parseInt(sticker.id) / 4194304 + 1420070400000);
+            sticker.createdAt = date;
+            sticker.createdTimestamp = date.getTime();
+
+            sticker.URL = new Image("Sticker", sticker.id, { format: "png" }).url;
+            sticker.URLs = new Image("Sticker", sticker.id, { format: "png" }).sizes;
+        });
+    }
+
+    if(data.roles) {
+        data.roles.forEach(async role => {
+            let date = new Date(parseInt(role.id) / 4194304 + 1420070400000);
+            role.createdAt = date;
+            role.createdTimestamp = date.getTime();
+
+            role.isHoisted = role.hoist;
+            delete role.hoist;
+
+            role.isManaged = role.managed;
+            delete role.managed;
+
+            role.isMentionable = role.mentionable;
+            delete role.mentionable;
+
+            role.unicodeEmoji = role.unicode_emoji;
+            delete role.unicode_emoji;
+
+            role.colorHex = role.color ? `#${role.color.toString(16).padStart(6, '0')}` : null;
+            role.colorRGB = role.color ? `rgb(${role.color >> 16}, ${(role.color >> 8) & 0xFF}, ${role.color & 0xFF})` : null;
+
+            role.publicFlags = role.flags;
+            role.flags = new RoleFlags(role.flags).getFlags();
+
+            role.publicPermissions = role.permissions;
+            role.permissions = new UserPermissions(BigInt(role.permissions)).getPermissions();
+
+            if(role.tags) {
+
+                role.tags.botId = role.tags.bot_id;
+                delete role.tags.bot_id;
+
+                role.tags.integrationId = role.tags.integration_id;
+                delete role.tags.integration_id;
+
+                role.tags.premiumSubscriber = role.tags.premium_subscriber;
+                delete role.tags.premium_subscriber;
+            }
         });
     }
 
@@ -187,8 +254,12 @@ router.get('/:id', limit, async (req, res) => {
         data.widgetJSONURL = `https://discord.com/api/guilds/${id}/widget.json`;
     }
 
+    data.maxStageVideoChannelUsers = data.max_video_channel_users || 1;
+    delete data.max_video_channel_users;
 
-
+    let date = new Date(data.id / 4194304 + 1420070400000);
+    data.createdAt = date.toISOString();
+    data.createdTimestamp = date.getTime();
 
 
     data = sortObject(data);
