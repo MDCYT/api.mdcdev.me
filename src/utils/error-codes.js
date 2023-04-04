@@ -62,6 +62,10 @@ const genericErrorCodes = {
         message: "This resource does not exist",
         code: 404
     },
+    10006: {
+        message: "Discord API is currently rate limiting you, please try again later",
+        code: 429
+    },
 }
 
 const userErrorCodes = {
