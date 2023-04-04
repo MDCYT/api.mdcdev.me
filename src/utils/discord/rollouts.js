@@ -101,6 +101,16 @@ function formatGuildRollouts(apiResponse) {
     return formattedResponse;
   }
 
+function getEspecificRollouts(data, type) {
+  //Check if data is an array of objects
+  if (!Array.isArray(data)) return []
+  if (data.length === 0) return []
+  if (typeof data[0] !== "object") return []
+
+  return data.filter(experiment => experiment.type === type)
+}
+
 module.exports = {
     formatGuildRollouts,
+    getEspecificRollouts
 };
