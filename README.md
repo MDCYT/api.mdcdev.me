@@ -24,4 +24,4 @@ For detailed documentation on the supported APIs, please refer to the following 
 
 ## Contact
 
-If you have any questions or issues with API.mdcdev.me, please contact us at [me@mdcdev.me](mailto://me@mdcdev.me) or via [Discord](discord://-/users/696491260071903233).
+If you have any questions or issues with API.mdcdev.me, please contact us at [me@mdcdev.me](mailto://me@mdcdev.me) or via [Discord MDC#0001](https://discord.com/users/696491260071903233).
