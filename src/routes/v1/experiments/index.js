@@ -4,12 +4,12 @@ const { join } = require('node:path');
 const rateLimit = require('express-rate-limit')
 const axios = require('axios');
 
-const { getEspecificRollouts } = require(join(__basedir, 'utils', 'discord', 'rollouts'));
 const RedisRateLimit = require(join(__basedir, 'utils', 'rate-limit'));
 const { statusCodeHandler } = require(join(__basedir, 'utils', 'status-code-handler'));
 const { Cache } = require(join(__basedir, 'utils', 'cache'));
+const { sortObject } = require(join(__basedir, 'utils', 'utils'));
 
-const cache = new Cache("guild-rollouts", 4, 60 * 60 * 1)
+const cache = new Cache("rollouts", 4, 60 * 60 * 1)
 
 const limit = rateLimit({
     windowMs: 1000 * 60 * 1, // 1 minute window
@@ -33,8 +33,8 @@ const limit = rateLimit({
 })
 
 router.get('/', limit, async (req, res) => {
-    let data = await cache.get('guild-rollouts');
-    if (!data) await await axios.get(req.protocol + '://' + req.get('host') + `/v1/experiments`).then(async response => {
+    let data = await cache.get('rollouts');
+    if (!data) await axios.get('https://experiments.dscrd.workers.dev/experiments').then(async response => {
         if (response.status === 200) {
             await cache.set('rollouts', response.data);
             data = response.data;
@@ -48,7 +48,7 @@ router.get('/', limit, async (req, res) => {
 
     if(!data) return statusCodeHandler({ statusCode: 503 }, res);
 
-    return res.json(getEspecificRollouts(data, "guild"));
+    return res.json(sortObject(data));
 
 });
 

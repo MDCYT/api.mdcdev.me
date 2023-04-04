@@ -9,7 +9,7 @@ const RedisRateLimit = require(join(__basedir, 'utils', 'rate-limit'));
 const { statusCodeHandler } = require(join(__basedir, 'utils', 'status-code-handler'));
 const { Cache } = require(join(__basedir, 'utils', 'cache'));
 
-const cache = new Cache("guild-rollouts", 4, 60 * 60 * 1)
+const cache = new Cache("users-rollouts", 4, 60 * 60 * 1)
 
 const limit = rateLimit({
     windowMs: 1000 * 60 * 1, // 1 minute window
@@ -48,7 +48,7 @@ router.get('/', limit, async (req, res) => {
 
     if(!data) return statusCodeHandler({ statusCode: 503 }, res);
 
-    return res.json(getEspecificRollouts(data, "guild"));
+    return res.json(getEspecificRollouts(data, "user"));
 
 });
 
