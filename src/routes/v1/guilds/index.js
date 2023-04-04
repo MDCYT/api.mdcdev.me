@@ -147,30 +147,39 @@ router.get('/:id', limit, async (req, res) => {
     data.applicationId = data.application_id;
     delete data.application_id;
 
-    data.bannerURL = new Image("GuildBanner", id, data.banner).url;
-    data.bannerURLs = new Image("GuildBanner", id, data.banner).sizes;
+    if(data.banner) {
+        data.bannerURL = new Image("GuildBanner", id, data.banner).url;
+        data.bannerURLs = new Image("GuildBanner", id, data.banner).sizes;
+    }
 
     data.defaultMessageNotifications = data.default_message_notifications;
     delete data.default_message_notifications;
 
-    data.discoverySplashURL = new Image("GuildDiscoverySplash", id, data.discovery_splash).url;
-    data.discoverySplashURLs = new Image("GuildDiscoverySplash", id, data.discovery_splash).sizes;
     data.discoverySplash = data.discovery_splash;
     delete data.discovery_splash;
+    if(data.discoverySplash) {
+        data.discoverySplashURL = new Image("GuildDiscoverySplash", id, data.discoverySplash).url;
+        data.discoverySplashURLs = new Image("GuildDiscoverySplash", id, data.discoverySplash).sizes;
+    }
 
     data.explicitContentFilter = data.explicit_content_filter || 0;
     delete data.explicit_content_filter;
 
     data.homeHeader = data.home_header;
-    data.homeHeaderURL = new Image("GuildHomeHeader", id, data.home_header).url;
-    data.homeHeaderURLs = new Image("GuildHomeHeader", id, data.home_header).sizes;
     delete data.home_header;
+
+    if(data.homeHeader){
+        data.homeHeaderURL = new Image("GuildHomeHeader", id, data.home_header).url;
+        data.homeHeaderURLs = new Image("GuildHomeHeader", id, data.home_header).sizes;
+    }
 
     data.hubType = data.hub_type;
     delete data.hub_type;
 
-    data.iconURL = new Image("GuildIcon", id, data.icon).url;
-    data.iconURLs = new Image("GuildIcon", id, data.icon).sizes;
+    if(data.icon) {
+        data.iconURL = new Image("GuildIcon", id, data.icon).url;
+        data.iconURLs = new Image("GuildIcon", id, data.icon).sizes;
+    }
 
     data.latestOnboardingQuestionId = data.latest_onboarding_question_id;
     delete data.latest_onboarding_question_id;
@@ -224,8 +233,10 @@ router.get('/:id', limit, async (req, res) => {
     data.safetyAlertsChannelId = data.safety_alerts_channel_id;
     delete data.safety_alerts_channel_id;
 
-    data.splashURL = new Image("GuildSplash", id, data.splash).url;
-    data.splashURLs = new Image("GuildSplash", id, data.splash).sizes;
+    if(data.splash) {
+        data.splashURL = new Image("GuildSplash", id, data.splash).url;
+        data.splashURLs = new Image("GuildSplash", id, data.splash).sizes;
+    }
 
     data.systemChannelFlags = data.system_channel_flags || 0;
     delete data.system_channel_flags;
