@@ -153,7 +153,68 @@ class ApplicationFlags {
     }
 };
 
+class RoleFlags {
+    constructor(bigInt) {
+        this.flags = [];
+        this.bigInt = BigInt(bigInt);
+
+        this.allFlags = {
+            "ROLE_PROMPT": 1 << 1
+        }
+
+        this.allFlagsNames = Object.keys(this.allFlags);
+        this.allFlagsValues = Object.values(this.allFlags);
+
+        this.getFlags();
+    }
+
+    getFlags() {
+        for (let i = 0; i < this.allFlagsValues.length; i++) {
+            if ((this.bigInt & BigInt(this.allFlagsValues[i])) === BigInt(this.allFlagsValues[i]) && this.flags.includes(this.allFlagsNames[i]) === false) {
+                this.flags.push(this.allFlagsNames[i]);
+            }
+        }
+        return this.flags;
+    }
+
+    hasFlag(flag) {
+        return this.flags.includes(flag);
+    }
+
+    addFlag(flag) {
+        if (!this.allFlagsNames.includes(flag)) throw new Error('Invalid flag');
+        this.bigInt = this.bigInt | BigInt(this.allFlags[flag]);
+    }
+
+    removeFlag(flag) {
+        if (!this.allFlagsNames.includes(flag)) throw new Error('Invalid flag');
+        this.bigInt = this.bigInt & ~BigInt(this.allFlags[flag]);
+    }
+
+    setFlags(flags) {
+        if (!Array.isArray(flags)) throw new Error('Flags must be an array');
+        this.bigInt = BigInt(this.bigInt); // convert the existing bigInt to BigInt type
+        for (let i = 0; i < flags.length; i++) {
+            this.addFlag(flags[i]);
+        }
+    }
+
+    toString() {
+        return this.bigInt.toString();
+    }
+
+    toJSON() {
+        return this.bigInt.toString();
+    }
+
+    valueOf() {
+        return this.bigInt;
+    }
+};
+
+
 module.exports = {
     UserFlags,
-    ApplicationFlags
+    ApplicationFlags,
+    RoleFlags
 }
