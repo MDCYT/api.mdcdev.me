@@ -167,12 +167,13 @@ router.get('/:id', limit, async (req, res) => {
         //If the response is 200, replace the user object with the response data
         if (response.status === 200) {
             data.user = response.data;
-        }
-        let date = new Date(parseInt(data.guild.id) / 4194304 + 1420070400000);
+            
+            let date = new Date(parseInt(data.user.id) / 4194304 + 1420070400000);
 
-        //Get the createdAt, createdAtTimestamp by Discord Snowflake
-        data.createdAt = date.toISOString();
-        data.createdAtTimestamp = date.getTime();
+            //Get the createdAt, createdAtTimestamp by Discord Snowflake
+            data.createdAt = date.toISOString();
+            data.createdAtTimestamp = date.getTime();
+        }
     }
 
     //If have max_participants, rename it to maxParticipants
