@@ -6,7 +6,6 @@ const axios = require('axios');
 
 const HTTP = require(join(__basedir, 'utils', 'discord', 'HTTP'));
 const { Image } = require(join(__basedir, 'utils', 'discord', 'images'));
-const { ApplicationFlags } = require(join(__basedir, 'utils', 'discord', 'flags'));
 const RedisRateLimit = require(join(__basedir, 'utils', 'rate-limit'));
 const { statusCodeHandler } = require(join(__basedir, 'utils', 'status-code-handler'));
 const { Cache } = require(join(__basedir, 'utils', 'cache'));
