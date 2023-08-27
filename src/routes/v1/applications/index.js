@@ -168,7 +168,7 @@ router.get('/:id', limit, async (req, res) => {
         if (response.status === 200) {
             data.user = response.data;
         }
-        let date = new Date(parseInt(data.guild.id) / 4194304 + 1420070400000);
+        let date = new Date(parseInt(data.id) / 4194304 + 1420070400000);
 
         //Get the createdAt, createdAtTimestamp by Discord Snowflake
         data.createdAt = date.toISOString();
