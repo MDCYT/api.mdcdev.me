@@ -170,9 +170,10 @@ router.get('/:id', limit, async (req, res) => {
         }
         let date = new Date(parseInt(data.id) / 4194304 + 1420070400000);
 
-        //Get the createdAt, createdAtTimestamp by Discord Snowflake
-        data.createdAt = date.toISOString();
-        data.createdAtTimestamp = date.getTime();
+            //Get the createdAt, createdAtTimestamp by Discord Snowflake
+            data.createdAt = date.toISOString();
+            data.createdAtTimestamp = date.getTime();
+        }
     }
 
     //If have max_participants, rename it to maxParticipants
