@@ -1,5 +1,3 @@
-const { Console } = require("console");
-
 //Make a objecy with all types of images of Discord and return it
 const imagesBaseURL = "https://cdn.discordapp.com";
 
@@ -315,7 +313,7 @@ class Image {
         if (!Object.keys(cdnEndpoints).some(name => name.toLowerCase().includes(type.toLowerCase()))) throw new Error(`Invalid type: ${type}`);
 
         //Check if the args are valid and have the minimum length for the type
-        if (!args || args.length < cdnEndpoints[type].length) throw new Error(`Invalid args for type: ${type}`);
+        if (args.length < cdnEndpoints[type].length) throw new Error(`Invalid args for type: ${type}`);
 
         this.args = args;
 
@@ -396,5 +394,6 @@ class Image {
 
 module.exports = {
     Image,
-    cdnEndpoints
+    cdnEndpoints,
+    compatibleImageTypes
 }
