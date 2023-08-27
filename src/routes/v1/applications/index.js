@@ -79,7 +79,7 @@ router.get('/:id', limit, async (req, res) => {
             //Rename team_id to teamId
             member.teamId = member.team_id;
             delete member.team_id;
-            
+
             //Get a axios get request to the user
             let response = await axios.get(`/v1/users/${member.user.id}`);
             //If the response is 200, replace the user object with the response data
@@ -147,7 +147,7 @@ router.get('/:id', limit, async (req, res) => {
     //Get the application's flags
     let flags = new ApplicationFlags(data.publicFlags);
     data.flags = flags.getFlags();
-    
+
     //Rename install_params to installParams
     data.installParams = data.install_params;
     delete data.install_params;
@@ -170,11 +170,11 @@ router.get('/:id', limit, async (req, res) => {
         }
         let date = new Date(parseInt(data.id) / 4194304 + 1420070400000);
 
-            //Get the createdAt, createdAtTimestamp by Discord Snowflake
-            data.createdAt = date.toISOString();
-            data.createdAtTimestamp = date.getTime();
-        }
+        //Get the createdAt, createdAtTimestamp by Discord Snowflake
+        data.createdAt = date.toISOString();
+        data.createdAtTimestamp = date.getTime();
     }
+
 
     //If have max_participants, rename it to maxParticipants
     if (data.max_participants) {
