@@ -82,7 +82,7 @@ const cdnEndpoints = {
     },
 
     /**
-     * @param {string | number} discriminator
+     * @param {string | number} discriminatorOrID
      * @returns {string}
      * @example
      * // returns "embed/avatars/0"
@@ -100,9 +100,12 @@ const cdnEndpoints = {
     * // returns "embed/avatars/4"
     * DefaultUserAvatar("#1234")
     */
-    DefaultUserAvatar(discriminator) {
-        if (typeof discriminator === "string") discriminator = parseInt(discriminator.replace("#", ""), 10);
-        return `embed/avatars/${discriminator % 5}`;
+    DefaultUserAvatar(discriminatorOrID) {
+        if (typeof discriminatorOrID === "string") discriminatorOrID = parseInt(discriminatorOrID.replace("#", ""), 10);
+        // Check if the number is betweet 1 to 9999
+        if (discriminatorOrID >= 1 || discriminatorOrID <= 9999) return `embed/avatars/${discriminatorOrID % 5}`;
+        return `embed/avatars/${(discriminatorOrID >> 22) % 6}`;
+        
     },
 
     /**
@@ -275,6 +278,17 @@ const cdnEndpoints = {
      */
     GuildHomeHeader(guildID, homeHeaderHash) {
         return `home-headers/${guildID}/${homeHeaderHash}`;
+    },
+
+    /**
+     * @param {string} avatarDecorationID
+     * @returns {string}
+     * @example
+     * // returns "avatar-decoration-presets/a_7d305bca6cf371df98c059f9d2ef05e4"
+     * GuildHomeHeader("a_7d305bca6cf371df98c059f9d2ef05e4")
+     */
+    AvatarDecoration(avatarDecorationID) {
+        return `avatar-decoration-presets/${avatarDecorationID}`;
     },
 };
 
