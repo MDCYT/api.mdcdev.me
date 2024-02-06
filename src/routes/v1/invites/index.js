@@ -62,10 +62,9 @@ router.get('/:id', limit, async (req, res) => {
             } else {
                 return statusCodeHandler({ statusCode: response.status }, res);
             }
-        }).catch(err => {
-            return;
-        });
-        if (!data) return statusCodeHandler({ statusCode: 12001 }, res);
+
+            return statusCodeHandler({ statusCode: 12001 }, res);
+        })
     
         if (data.guild) {
     
