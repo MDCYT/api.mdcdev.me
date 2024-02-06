@@ -64,6 +64,34 @@ router.get('/:id/avatar', limit, async (req, res) => {
     
 })
 
+router.get('/:id/banner', limit, async (req, res) => {
+    // Get data from /:id
+    const { id } = req.params;
+    const http = new HTTP(process.env.DISCORD_BOT_TOKEN);
+    let data = await cache.get(id);
+    if (!data) {
+        await http.get('USER_URL', "path", id).then(async response => {
+            //If the response is 200, add the user to the cache
+            if (response.status === 200) {
+                await cache.set(id, response.data);
+                data = response.data;
+            } else {
+                return statusCodeHandler({ statusCode: response.status }, res);
+            }
+        });
+
+        return statusCodeHandler({ statusCode: 11001 }, res);
+    }
+
+    if(!data.id) return statusCodeHandler({ statusCode: 11001 }, res);
+
+    let banner = data.banner ? new Image("UserBanner", data.id, data.banner) : null;
+
+    if(banner) return res.redirect(banner.url)
+    return statusCodeHandler({ statusCode: 11001 }, res);
+    
+})
+
 router.get('/:id', limit, async (req, res) => {
     const { id } = req.params;
     const http = new HTTP(process.env.DISCORD_BOT_TOKEN);
