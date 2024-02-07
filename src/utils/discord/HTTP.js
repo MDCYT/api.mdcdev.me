@@ -13,7 +13,7 @@ class HTTP {
             case 'path':
                 return axios.get(endpoints[endpoint](...params), {
                     headers: {
-                        Authorization: this.token ? `Bot ${this.token}` : "",
+                        Authorization: this.token || "",
                         'User-Agent': thePackage.name + '/' + thePackage.version,
                         "Content-Type": "application/json",
                     },
@@ -22,7 +22,7 @@ class HTTP {
                 return axios.get(endpoints[endpoint], {
                     ...params,
                     headers: {
-                        Authorization: this.token ? `Bot ${this.token}` : "",
+                        Authorization: this.token || "",
                         'User-Agent': thePackage.name + '/' + thePackage.version,
                         "Content-Type": "application/json",
                     },
@@ -31,7 +31,7 @@ class HTTP {
             default:
                 return axios.get(endpoints[endpoint], {
                     headers: {
-                        Authorization: this.token ? `Bot ${this.token}` : "",
+                        Authorization: this.token || "",
                         'User-Agent': thePackage.name + '/' + thePackage.version,
                         "Content-Type": "application/json",
                     },
@@ -44,7 +44,7 @@ class HTTP {
         return axios.post(endpoints[endpoint], data, {
             params,
             headers: {
-                Authorization: `Bot ${this.token}`,
+                Authorization: this.token || "",
                 'User-Agent': thePackage.name + '/' + thePackage.version,
                 "Content-Type": "application/json",
             },
