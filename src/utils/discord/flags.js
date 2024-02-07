@@ -119,7 +119,8 @@ class ApplicationFlags {
             "GATEWAY_MESSAGE_CONTENT_LIMITED": 1 << 19,
             "EMBEDDED_FIRST_PARTY": 1 << 20,
             "APPLICATION_COMMAND_BADGE": 1 << 23,
-            "ACTIVE": 1 << 24
+            "ACTIVE": 1 << 24,
+            "IFRAME_MODAL": 1 << 26
         }
 
         this.allFlagsNames = Object.keys(this.allFlags);
