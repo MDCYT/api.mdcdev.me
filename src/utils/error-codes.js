@@ -106,10 +106,6 @@ const guildErrorCodes = {
     13002: {
         message: "Guild is unavailable",
         code: 503
-    },
-    13003: {
-        message: "Guild is not available",
-        code: 503
     }
 }
 
@@ -122,9 +118,7 @@ const customErrorCodes = {
 }
 
 function getCustomErrorCodes(code) {
-    //If the code is not a 5 digit number, return 10002 (generic error)
-    if (code.toString().length !== 5) return customErrorCodes[10002];
-    //If the code is a 5 digit number and custom error code exists, return the custom error code
+    //If the custom error code exists, return the custom error code
     if (customErrorCodes[code]) return customErrorCodes[code];
     //If the code is a 5 digit number and custom error code does not exist, return 10002 (generic error)
     return customErrorCodes[10002];
