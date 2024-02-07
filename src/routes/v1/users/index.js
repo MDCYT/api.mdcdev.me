@@ -51,8 +51,6 @@ router.get('/:id/avatar', limit, async (req, res) => {
                 return statusCodeHandler({ statusCode: response.status }, res);
             }
         });
-
-        return statusCodeHandler({ statusCode: 11001 }, res);
     }
 
     if(!data.id) return statusCodeHandler({ statusCode: 11001 }, res);
@@ -79,8 +77,6 @@ router.get('/:id/banner', limit, async (req, res) => {
                 return statusCodeHandler({ statusCode: response.status }, res);
             }
         });
-
-        return statusCodeHandler({ statusCode: 11001 }, res);
     }
 
     if(!data.id) return statusCodeHandler({ statusCode: 11001 }, res);
@@ -106,8 +102,6 @@ router.get('/:id', limit, async (req, res) => {
                 return statusCodeHandler({ statusCode: response.status }, res);
             }
         });
-
-        return statusCodeHandler({ statusCode: 11001 }, res);
     }
 
     data.raw = JSON.parse(JSON.stringify(data))
