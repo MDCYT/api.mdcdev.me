@@ -37,8 +37,6 @@ app.use((req, res, next) => {
 //The route is the path to the file, and the file is the file that we require
 async function requireRoutes(path, fullpath = "") {
     fs.readdirSync(join(__dirname, path)).forEach(async file => {
-        // Wait 1 second, please
-        await new Promise(resolve => setTimeout(resolve, 1000));
         if (file.endsWith(".js")) {
             if (file === "index.js") {
                 app.use(`${fullpath}`, require(join(__dirname, path, file)));
