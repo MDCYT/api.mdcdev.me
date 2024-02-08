@@ -13,7 +13,7 @@ const { statusCodeHandler } = require(join(__basedir, 'utils', 'status-code-hand
 const cache = new Cache("users", 0, 60 * 60 * 24)
 
 const limit = rateLimit({
-    windowMs: 1000 * 60 * 60, // 1 hour window
+    windowMs: 1000 * 60 * 15, // 15 minutes
     max: (req, res) => {
         return 50;
     }, // start blocking after 50 requests
@@ -50,10 +50,12 @@ router.get('/:id/avatar', limit, async (req, res) => {
             } else {
                 return statusCodeHandler({ statusCode: response.status }, res);
             }
-        });
+        }).catch((e) => {
+            return statusCodeHandler({ statusCode: 11001 }, res);
+        })
     }
 
-    if(!data.id) return statusCodeHandler({ statusCode: 11001 }, res);
+    if(!data?.id) return;
 
     let avatar = data.avatar ? new Image("UserAvatar", data.id, data.avatar) : new Image("DefaultUserAvatar", (data.discriminator === "0" || !data.discriminator) ? data.id : data.discriminator, { format: "png" });
 
@@ -76,10 +78,12 @@ router.get('/:id/banner', limit, async (req, res) => {
             } else {
                 return statusCodeHandler({ statusCode: response.status }, res);
             }
-        });
+        }).catch((e) => {
+            return statusCodeHandler({ statusCode: 11001 }, res);
+        })
     }
 
-    if(!data.id) return statusCodeHandler({ statusCode: 11001 }, res);
+    if(!data?.id) return;
 
     let banner = data.banner ? new Image("UserBanner", data.id, data.banner) : null;
 
@@ -101,8 +105,12 @@ router.get('/:id', limit, async (req, res) => {
             } else {
                 return statusCodeHandler({ statusCode: response.status }, res);
             }
-        });
+        }).catch((e) => {
+            return statusCodeHandler({ statusCode: 11001 }, res);
+        })
     }
+
+    if(!data?.id) return;
 
     data.raw = JSON.parse(JSON.stringify(data))
 

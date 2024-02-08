@@ -90,9 +90,6 @@ router.get('/:code', limit, async (req, res) => {
                     } else {
                         return statusCodeHandler({ statusCode: response.status }, res);
                     }
-
-                    return statusCodeHandler({ statusCode: 12001 }, res);
-                }).catch ((e) => {
                 })
             } catch (e) {
                 return statusCodeHandler({ statusCode: 12001 }, res);
