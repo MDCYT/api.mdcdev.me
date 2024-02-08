@@ -8,6 +8,10 @@ class Cache {
         this.ttl = ttl;
     }
 
+    async has(key) {
+        return await this.client.exists(key);
+    }
+
     //Set a value in the cache
     async set(key, value, ttl = this.ttl) {
         await this.client.set(key, JSON.stringify(value));
