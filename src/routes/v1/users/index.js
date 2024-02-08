@@ -106,6 +106,7 @@ router.get('/:id', limit, async (req, res) => {
                 return statusCodeHandler({ statusCode: response.status }, res);
             }
         }).catch((e) => {
+            console.log(e)
             return statusCodeHandler({ statusCode: 11001 }, res);
         })
     }
