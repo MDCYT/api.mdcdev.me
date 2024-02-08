@@ -35,18 +35,18 @@ class UserPermissions {
             "MANAGE_ROLES": 1 << 28,
             "MANAGE_WEBHOOKS": 1 << 29,
             "MANAGE_EMOJIS": 1 << 30,
-            "USE_APPLICATION_COMMANDS": 1 << 31,
-            "REQUEST_TO_SPEAK": 1 << 32,
-            "MANAGE_EVENTS": 1 << 33,
-            "MANAGE_THREADS": 1 << 34,
-            "CREATE_PUBLIC_THREADS": 1 << 35,
-            "CREATE_PRIVATE_THREADS": 1 << 36,
-            "USE_EXTERNAL_STICKERS": 1 << 37,
-            "SEND_MESSAGES_IN_THREADS": 1 << 38,
-            "USE_EMBEDDED_ACTIVITIES": 1 << 39,
-            "MODERATE_MEMBERS": 1 << 40,
-            "VIEW_CREATOR_MONETIZATION_ANALYTICS": 1 << 41,
-            "USE_SOUNDBOARD": 1 << 42
+            "USE_APPLICATION_COMMANDS": 1n << 31n,
+            "REQUEST_TO_SPEAK": 1n << 32n,
+            "MANAGE_EVENTS": 1n << 33n,
+            "MANAGE_THREADS": 1n << 34n,
+            "CREATE_PUBLIC_THREADS": 1n << 35n,
+            "CREATE_PRIVATE_THREADS": 1n << 36n,
+            "USE_EXTERNAL_STICKERS": 1n << 37n,
+            "SEND_MESSAGES_IN_THREADS": 1n << 38n,
+            "USE_EMBEDDED_ACTIVITIES": 1n << 39n,
+            "MODERATE_MEMBERS": 1n << 40n,
+            "VIEW_CREATOR_MONETIZATION_ANALYTICS": 1n << 41n,
+            "USE_SOUNDBOARD": 1n << 42n
         }
 
         this.allPermissionsNames = Object.keys(this.allPermissions);
