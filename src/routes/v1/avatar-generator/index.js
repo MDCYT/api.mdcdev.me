@@ -9,9 +9,9 @@ const { Cache } = require(join(__basedir, 'utils', 'cache'));
 
 const cache = new Cache("avatar-generator", 1, 60 * 60 * 24)
 
-const { registerFont, createCanvas } = require('@napi-rs/canvas');
+const { GlobalFonts, createCanvas } = require('@napi-rs/canvas');
 
-registerFont(join(__basedir, 'fonts', 'ARIAL.TTF'), { family: 'arial'});
+GlobalFonts.registerFromPath(join(__basedir, 'fonts', 'ARIAL.TTF'), 'arial');
 
 const canvas = createCanvas(120, 120);
 const ctx = canvas.getContext('2d');
