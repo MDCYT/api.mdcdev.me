@@ -1,4 +1,4 @@
-if(process.env.NODE_ENV !== 'production') require('dotenv').config();
+if (process.env.NODE_ENV !== 'production') require('dotenv').config();
 
 const express = require('express');
 const app = express();
@@ -35,22 +35,25 @@ app.use((req, res, next) => {
 //We have a folder called "routes", and inside that folder we have a folders called "v1", "v2", "v3" and more, inside those folders we have a folder called "users", "guilds" and more, inside those folders we have a file called "@me.js", "index.js" and more
 //This is how we require all the files in the "routes" folder
 //The route is the path to the file, and the file is the file that we require
-function requireRoutes(path, fullpath = "") {
-    fs.readdirSync(join(__dirname, path)).forEach(file => {
-        if(file.endsWith(".js")) {
-            // app.use(`${fullpath}/${file.replace(".js", "")}`, require(join(__dirname, path, file)));
-            // console.log(`Loaded route: ${fullpath}/${file.replace(".js", "")}`);
-            //If the file is called index.js, we don't want to add the file name to the route
-            if(file === "index.js") {
+async function requireRoutes(path, fullpath = "") {
+    fs.readdirSync(join(__dirname, path)).forEach(async file => {
+        // Wait 1 second, please
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        if (file.endsWith(".js")) {
+            if (file === "index.js") {
                 app.use(`${fullpath}`, require(join(__dirname, path, file)));
                 console.log(`Loaded route: ${fullpath}`);
             } else {
                 app.use(`${fullpath}/${file.replace(".js", "")}`, require(join(__dirname, path, file)));
                 console.log(`Loaded route: ${fullpath}/${file.replace(".js", "")}`);
             }
+            // app.use(`${fullpath}/${file.replace(".js", "")}`, require(join(__dirname, path, file)));
+            // console.log(`Loaded route: ${fullpath}/${file.replace(".js", "")}`);
+            //If the file is called index.js, we don't want to add the file name to the route
         } else {
-            requireRoutes(join(path, file), `${fullpath}/${file}`);
+            await requireRoutes(join(path, file), `${fullpath}/${file}`);
         }
+
     });
 }
 
