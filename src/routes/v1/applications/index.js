@@ -15,7 +15,7 @@ const { sortObject } = require(join(__basedir, 'utils', 'utils'));
 const cache = new Cache("applications", 1, 60 * 60 * 24)
 
 const limit = rateLimit({
-    windowMs: 1000 * 60 * 60, // 1 hour window
+    windowMs: 1000 * 60 * 15, // 15 minutes window
     max: (req, res) => {
         return 25;
     }, // start blocking after 25 requests
@@ -25,6 +25,13 @@ const limit = rateLimit({
     skip: (req, res) => {
         //If the :id is process.env.OWNER_DISCORD_BOT_ID, skip the rate limit
         if (req.params.id === process.env.OWNER_DISCORD_BOT_ID) return true;
+
+        //If the request is from me, skip the rate limit
+        const ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+        if (ip === 'localhost' || ip === '::1' || ip === '::ffff:127.0.0.1') {
+            return true;
+        }
+
         return false;
     },
     standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
@@ -45,9 +52,9 @@ router.get('/:id', limit, async (req, res) => {
             return statusCodeHandler({ statusCode: response.status }, res);
         }
     }).catch(err => {
-        return;
+        return statusCodeHandler({ statusCode: 14001 }, res);
     });
-    if (!data) return statusCodeHandler({ statusCode: 12001 }, res);
+    if (!data) return statusCodeHandler({ statusCode: 14001 }, res);
 
 
     //If the application has a cover image, add it to the object
@@ -163,10 +170,15 @@ router.get('/:id', limit, async (req, res) => {
     //If have id, get the user from api
     if (data.id) {
         //Get a axios get request to the user
-        let response = await axios.get(req.protocol + '://' + req.get('host') + `/v1/users/${data.id}`);
-        //If the response is 200, replace the user object with the response data
-        if (response.status === 200) {
-            data.user = response.data;
+        try {
+            await axios.get(req.protocol + '://' + req.get('host') + `/v1/users/${data.id}`).then((response) => {
+                //If the response is 200, replace the user object with the response data
+                if (response.status === 200) {
+                    data.user = response.data;
+                }
+            }).catch((_e) => {
+            });
+        } catch (_e) {
         }
         let date = new Date(parseInt(data.id) / 4194304 + 1420070400000);
 
