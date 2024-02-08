@@ -9,9 +9,9 @@ const { Cache } = require(join(__basedir, 'utils', 'cache'));
 
 const cache = new Cache("avatar-generator", 1, 60 * 60 * 24)
 
-const { createCanvas } = require('canvas')
-const canvas = createCanvas(120, 120)
-const ctx = canvas.getContext('2d')
+const Canvas = require('@napi-rs/canvas');
+const canvas = Canvas.createCanvas(120, 120);
+const ctx = canvas.getContext('2d');
 
 const colors = [
     "#FFD1DC", // Rosa pastel
@@ -57,9 +57,9 @@ router.get('/:text', limit, async (req, res) => {
     ctx.font = '48px arial';
     ctx.fillText(text, canvas.width / 2 - ctx.measureText(text).width / 2, canvas.height / 2 + 12);
 // Save image to cache
-    await cache.set(text, canvas.toBuffer());
+    await cache.set(text, await canvas.encode('png'));
     res.setHeader('Content-Type', 'image/png');
-    res.send(canvas.toBuffer());
+    res.send(await canvas.encode('png'));
     
 });
 
