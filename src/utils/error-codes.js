@@ -109,12 +109,20 @@ const guildErrorCodes = {
     }
 }
 
+const applicationErrorCodes = {
+    14001: {
+        message: "Application not found",
+        code: 404
+    }
+}
+
 const customErrorCodes = {
     ...errorCodes,
     ...genericErrorCodes,
     ...userErrorCodes,
     ...guildErrorCodes,
-    ...inviteErrorCodes
+    ...inviteErrorCodes,
+    ...applicationErrorCodes
 }
 
 function getCustomErrorCodes(code) {
