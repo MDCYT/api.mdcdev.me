@@ -11,7 +11,7 @@ const { statusCodeHandler } = require(join(__basedir, 'utils', 'status-code-hand
 const { Cache } = require(join(__basedir, 'utils', 'cache'));
 const { sortObject } = require(join(__basedir, 'utils', 'utils'));
 
-const cache = new Cache("applications", 1, 60 * 60 * 24)
+const cache = new Cache("discord-applications", 1, 60 * 60 * 24)
 
 const limit = rateLimit({
     windowMs: 1000 * 60 * 60, // 1 hour window

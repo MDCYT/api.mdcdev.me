@@ -10,7 +10,7 @@ const { Cache } = require(join(__basedir, 'utils', 'cache'));
 const RedisRateLimit = require(join(__basedir, 'utils', 'rate-limit'));
 const { statusCodeHandler } = require(join(__basedir, 'utils', 'status-code-handler'));
 
-const cache = new Cache("users", 0, 60 * 60 * 24)
+const cache = new Cache("discord-users", 0, 60 * 60 * 24)
 
 const limit = rateLimit({
     windowMs: 1000 * 60 * 15, // 15 minutes
