@@ -7,7 +7,7 @@ const axios = require('axios');
 
 const { Cache } = require(join(__basedir, 'utils', 'cache'));
 const RedisRateLimit = require(join(__basedir, 'utils', 'rate-limit'));
-const { statusCodeHandler, customErrorCodes } = require(join(__basedir, 'utils', 'status-code-handler'));
+const { statusCodeHandler } = require(join(__basedir, 'utils', 'status-code-handler'));
 
 const cache = new Cache("twitter-users", 0, 60 * 60 * 24 * 1.5)
 
