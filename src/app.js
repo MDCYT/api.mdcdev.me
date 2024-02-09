@@ -57,7 +57,6 @@ async function requireRoutes(path, fullpath = "") {
 
 requireRoutes("routes");
 
-
 app.get('/', (req, res) => res.json({ message: 'Welcome to the MDCDEV API', documentation: 'https://docs.api.mdcdev.me' }));
 
 app.all('*', (req, res) => {
@@ -65,4 +64,4 @@ app.all('*', (req, res) => {
 });
 
 
-app.listen(port, () => console.log(`Example app listening on port ${port}!`));
+app.listen(port, () => console.log(`API listening on port ${port}!`));
