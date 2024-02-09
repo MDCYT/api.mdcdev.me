@@ -68,7 +68,7 @@ const genericErrorCodes = {
     },
 }
 
-const userErrorCodes = {
+const DiscordUserErrorCodes = {
     11001: {
         message: "User not found",
         code: 404
@@ -83,7 +83,7 @@ const userErrorCodes = {
     },
 }
 
-const inviteErrorCodes = {
+const DiscordInviteErrorCodes = {
     12001: {
         message: "Invalid invite code/Friend invite code",
         code: 400
@@ -98,7 +98,7 @@ const inviteErrorCodes = {
     }
 }
 
-const guildErrorCodes = {
+const DiscordGuildErrorCodes = {
     13001: {
         message: "Guild not found",
         code: 404
@@ -109,9 +109,20 @@ const guildErrorCodes = {
     }
 }
 
-const applicationErrorCodes = {
+const DiscordApplicationErrorCodes = {
     14001: {
         message: "Application not found",
+        code: 404
+    }
+}
+
+const TwitterUserErrorCodes = {
+    15001: {
+        message: "User not found",
+        code: 404
+    },
+    15002: {
+        message: "This user dont have banner",
         code: 404
     }
 }
@@ -119,10 +130,11 @@ const applicationErrorCodes = {
 const customErrorCodes = {
     ...errorCodes,
     ...genericErrorCodes,
-    ...userErrorCodes,
-    ...guildErrorCodes,
-    ...inviteErrorCodes,
-    ...applicationErrorCodes
+    ...DiscordUserErrorCodes,
+    ...DiscordGuildErrorCodes,
+    ...DiscordInviteErrorCodes,
+    ...DiscordApplicationErrorCodes,
+    ...TwitterUserErrorCodes
 }
 
 function getCustomErrorCodes(code) {
@@ -133,10 +145,6 @@ function getCustomErrorCodes(code) {
 }
 
 module.exports = {
-    errorCodes,
-    genericErrorCodes,
-    userErrorCodes,
-    inviteErrorCodes,
     customErrorCodes,
     getCustomErrorCodes
 }

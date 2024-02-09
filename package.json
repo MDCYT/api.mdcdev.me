@@ -26,7 +26,8 @@
     "node": "^16.19.1",
     "rate-limit-redis": "^3.0.1",
     "redis": "^4.6.5",
-    "redis-json": "^6.0.3"
+    "redis-json": "^6.0.3",
+    "rettiwt-api": "^2.5.1"
   },
   "devDependencies": {
     "dotenv": "^16.0.3",
