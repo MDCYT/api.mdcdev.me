@@ -124,6 +124,10 @@ const TwitterUserErrorCodes = {
     15002: {
         message: "This user dont have banner",
         code: 404
+    },
+    15003: {
+        message: "A error occured when try getting tweets",
+        code: 500
     }
 }
 

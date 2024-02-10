@@ -9,7 +9,9 @@ const { Cache } = require(join(__basedir, 'utils', 'cache'));
 const RedisRateLimit = require(join(__basedir, 'utils', 'rate-limit'));
 const { statusCodeHandler } = require(join(__basedir, 'utils', 'status-code-handler'));
 
-const cache = new Cache("twitter-users", 0, 60 * 60 * 24 * 1.5)
+const userCache = new Cache("twitter-users", 0, 60 * 60 * 24 * 1.5)
+const tweetsCache = new Cache("twitter-users-tweets", 0, 60 * 60 * 6)
+//const repliesCache = new Cache("twitter-users-replies", 0, 60 * 60 * 6)
 
 const rettiwt = new Rettiwt();
 
@@ -38,12 +40,12 @@ const limit = rateLimit({
 router.get('/:username/avatar', limit, async (req, res) => {
     let { username } = req.params;
     username = username.toLowerCase()
-    let data = await cache.get(username);
+    let data = await userCache.get(username);
     if (!data) {
         await rettiwt.user.details(username).then(async details => {
             //If the response is 200, add the user to the cache
             if (details) {
-                await cache.set(username, details);
+                await userCache.set(username, details);
                 data = details;
             } else {
                 return statusCodeHandler({ statusCode: 404 }, res);
@@ -63,12 +65,12 @@ router.get('/:username/avatar', limit, async (req, res) => {
 router.get('/:username/banner', limit, async (req, res) => {
     let { username } = req.params;
     username = username.toLowerCase()
-    let data = await cache.get(username);
+    let data = await userCache.get(username);
     if (!data) {
         await rettiwt.user.details(username).then(async details => {
             //If the response is 200, add the user to the cache
             if (details) {
-                await cache.set(username, details);
+                await userCache.set(username, details);
                 data = details;
             } else {
                 return statusCodeHandler({ statusCode: 404 }, res);
@@ -87,15 +89,69 @@ router.get('/:username/banner', limit, async (req, res) => {
 
 })
 
-router.get('/:username', limit, async (req, res) => {
+router.get('/:username/timeline', limit, async (req, res) => {
     let { username } = req.params;
     username = username.toLowerCase()
-    let data = await cache.get(username);
+    let data = await userCache.get(username);
     if (!data) {
         await rettiwt.user.details(username).then(async details => {
             //If the response is 200, add the user to the cache
             if (details) {
-                await cache.set(username, details);
+                await userCache.set(username, details);
+                data = details;
+            } else {
+                return statusCodeHandler({ statusCode: 404 }, res);
+            }
+        }).catch((e) => {
+            return statusCodeHandler({ statusCode: 15001 }, res);
+        })
+    }
+
+    if (!data?.id) return;
+    if (data.statusesCount === 0) return res.json({tweets: []}) 
+
+    if(await tweetsCache.has("username")) {
+        const tweets = (await tweetsCache.get("username")).list
+        tweets.forEach(tweet => {
+          if (tweet.tweetBy) {
+            delete tweet.isVerified;
+          }
+        })
+        return res.json(await tweetsCache.get("username"))
+    }
+
+    await rettiwt.user.timeline(data.id).then(async details => {
+        if(details) {
+            await tweetsCache.set(username, details);
+            const tweets = details.list;
+            tweets.forEach(tweet => {
+                if (tweet.tweetBy) {
+                  delete tweet.isVerified;
+                }
+              })
+            res.json({ tweets })
+        } else {
+            return statusCodeHandler({ statusCode: 15003 }, res);
+        }
+
+    }).catch((e) => {
+        console.log(e)
+        return statusCodeHandler({ statusCode: 15003 }, res);
+    })
+
+    return;
+
+})
+
+router.get('/:username', limit, async (req, res) => {
+    let { username } = req.params;
+    username = username.toLowerCase()
+    let data = await userCache.get(username);
+    if (!data) {
+        await rettiwt.user.details(username).then(async details => {
+            //If the response is 200, add the user to the cache
+            if (details) {
+                await userCache.set(username, details);
                 data = details;
             } else {
                 return statusCodeHandler({ statusCode: 404 }, res);
