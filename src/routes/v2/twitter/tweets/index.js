@@ -11,7 +11,7 @@ const { statusCodeHandler } = require(join(__basedir, 'utils', 'status-code-hand
 
 const cache = new Cache("twitter-tweets", 0, 60 * 60 * 24 * 30)
 
-const rettiwt = new Rettiwt();
+const rettiwt = new Rettiwt({ apiKey: process.env.TWITTER_TOKEN });
 
 const limit = rateLimit({
     windowMs: 1000 * 60 * 15, // 15 minutes
