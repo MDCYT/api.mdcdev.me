@@ -221,15 +221,7 @@ router.get('/:username/likes', limit, async (req, res) => {
     if (!data?.id) return;
     if (data.statusesCount === 0) return res.json({ tweets: [] })
 
-    if (await likesCache.has(username)) {
-        const tweets = (await likesCache.get(username)).list
-        tweets.forEach(tweet => {
-            if (tweet.tweetBy) {
-                delete tweet.isVerified;
-            }
-        })
-        return res.json(await likesCache.get(username))
-    }
+    if (await likesCache.has(username)) return res.json((await likesCache.get(username)).list)
 
     await rettiwt.user.likes(data.id, 100).then(async details => {
         if (details) {
