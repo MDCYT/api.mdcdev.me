@@ -39,11 +39,11 @@ async function requireRoutes(path, fullpath = "") {
     fs.readdirSync(join(__dirname, path)).forEach(async file => {
         if (file.endsWith(".js")) {
             if (file === "index.js") {
-                app.use(`${fullpath}`, require(join(__dirname, path, file)));
-                console.log(`Loaded route: ${fullpath}`);
+                app.use(`${fullpath.replace("~", ":")}`, require(join(__dirname, path, file)));
+                console.log(`Loaded route: ${fullpath.replace("~", ":")}`);
             } else {
-                app.use(`${fullpath}/${file.replace(".js", "")}`, require(join(__dirname, path, file)));
-                console.log(`Loaded route: ${fullpath}/${file.replace(".js", "")}`);
+                app.use(`${fullpath.replace(".js", ).replace("~", ":")}/${file.replace(".js", "")}`, require(join(__dirname, path, file)));
+                console.log(`Loaded route: ${fullpath.replace(".js", ).replace("~", ":")}/${file.replace(".js", "")}`);
             }
             // app.use(`${fullpath}/${file.replace(".js", "")}`, require(join(__dirname, path, file)));
             // console.log(`Loaded route: ${fullpath}/${file.replace(".js", "")}`);
