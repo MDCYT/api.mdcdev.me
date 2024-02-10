@@ -211,20 +211,13 @@ router.get('/:username/likes', limit, async (req, res) => {
     }
 
     if (!data?.id) return;
-    if (data.statusesCount === 0) return res.json({ tweets: [] })
 
-    if (await likesCache.has(username)) return res.json({tweets: (await likesCache.get(username)).list})
+    if (await likesCache.has(username)) return res.json({likes: (await likesCache.get(username)).list})
 
     await rettiwt.user.likes(data.id, 100).then(async details => {
         if (details) {
             await likesCache.set(username, details);
-            const tweets = details.list;
-            tweets.forEach(tweet => {
-                if (tweet.tweetBy) {
-                    delete tweet.isVerified;
-                }
-            })
-            res.json({ tweets })
+            res.json({ likes: details.list })
         } else {
             return statusCodeHandler({ statusCode: 15003 }, res);
         }
@@ -257,7 +250,6 @@ router.get('/:username/followers', limit, async (req, res) => {
     }
 
     if (!data?.id) return;
-    if (data.statusesCount === 0) return res.json({ tweets: [] })
 
     if (await followersCache.has(username)) return res.json({users: (await followersCache.get(username)).list})
 
@@ -301,7 +293,6 @@ router.get('/:username/followings', limit, async (req, res) => {
     }
 
     if (!data?.id) return;
-    if (data.statusesCount === 0) return res.json({ tweets: [] })
 
     if (await followingsCache.has(username)) return res.json({users: (await followingsCache.get(username)).list})
 
