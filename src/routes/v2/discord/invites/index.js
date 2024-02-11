@@ -96,6 +96,8 @@ router.get('/:code', limit, async (req, res) => {
             }
         })
 
+        if(res.headersSent) return;
+
         if (data.guild) {
 
             // Convert hash of icon, banner and splash to a url
