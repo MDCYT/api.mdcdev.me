@@ -1,7 +1,13 @@
 function sortObject(object, z_a = false) {
     let sortedObject = {};
     if (Array.isArray(object)) {
-        return object.sort();
+        // If the object is an array, check of the elements are objects to sort them, and return the array should be sorted
+        return object.map(element => {
+            if (typeof element === 'object') {
+                return sortObject(element);
+            }
+            return element;
+        }).sort();
     }
     if (typeof object !== 'object') {
         return object;
@@ -16,9 +22,20 @@ function sortObject(object, z_a = false) {
             sortedObject[key] = object[key];
         }
     });
-    return sortedObject;
+    
+    return objectToCamelCase(sortedObject);
+}
+
+function objectToCamelCase(obj) {
+    // CamelCase the object keys, not the values
+    let newObj = {};
+    for (let key in obj) {
+        newObj[key.replace(/_([a-z])/g, (g) => g[1].toUpperCase())] = obj[key];
+    }
+    return newObj;
 }
 
 module.exports = {
-    sortObject
+    sortObject,
+    objectToCamelCase
 }
