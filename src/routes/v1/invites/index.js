@@ -31,61 +31,6 @@ const limit = rateLimit({
     store: RedisRateLimit
 })
 
-/**
- * @swagger
- * components:
- *   schemas:
- *     Invite:
- *       type: object
- *       required:
- *         - code
- *         - expiresAt
- *         - expiresAtTimestamp
- *         - expiresIn
- *         - inviteURL
- *         - type
- *       properties:
- *         approximateMemberCount:
- *           type: number
- *           description: The ammount of members that are in the server
- *         approximatePresenceCount:
- *           type: number
- *           description: The ammount of members that are online
- *         channel:
- *           type: InviteChannel
- *           description: The book title
- *         author:
- *           type: string
- *           description: The book author
- *       example:
- *         id: d5fE_asz
- *         title: The New Turing Omnibus
- *         author: Alexander K. Dewdney
- */
-
- /**
-  * @swagger
-  * tags:
-  *   name: Books
-  *   description: The books managing API
-  */
-
-/**
- * @swagger
- * /books:
- *   get:
- *     summary: Returns the list of all the books
- *     tags: [Books]
- *     responses:
- *       200:
- *         description: The list of the books
- *         content:
- *           application/json:
- *             schema:
- *               type: array
- *               items:
- *                 $ref: '#/components/schemas/Book'
- */
 router.get('/:code', limit, async (req, res) => {
     try {
         const { code } = req.params;

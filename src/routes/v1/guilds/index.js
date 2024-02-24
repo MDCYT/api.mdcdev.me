@@ -273,11 +273,10 @@ router.get('/:id', limit, async (req, res) => {
     data.createdTimestamp = date.getTime();
 
     data.embedChannelId = data.embed_channel_id;
-    delete embed_channel_id;
+    delete data.embed_channel_id;
 
     data.embedEnabled = data.embed_enabled || false;
-    delete embed_enabled;
-
+    delete data.embed_enabled;
 
     data = sortObject(data);
 
