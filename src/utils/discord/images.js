@@ -334,7 +334,6 @@ class Image {
         //Check if the last arg is an object, if it is, set it to options, if not, set it to an empty object
         this.options = (typeof args[args.length - 1] === "object" ? args.pop() : {}) ?? {};
 
-
         //Check if the options have a size, if it does, set it to size, if not, set it to null
         this.size = this.options.size || null;
 
