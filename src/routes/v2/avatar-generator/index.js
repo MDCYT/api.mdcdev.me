@@ -1,10 +1,8 @@
 const { Router } = require('express');
 const router = Router();
 const { join } = require('node:path');
-const rateLimit = require('express-rate-limit')
 
-const RedisRateLimit = require(join(__basedir, 'utils', 'rate-limit'));
-const { statusCodeHandler } = require(join(__basedir, 'utils', 'status-code-handler'));
+const RateLimit = require(join(__basedir, 'utils', 'rate-limit'));
 const { Cache } = require(join(__basedir, 'utils', 'cache'));
 
 const { GlobalFonts, createCanvas } = require('@napi-rs/canvas');
@@ -28,25 +26,7 @@ const colors = [
     "#98FB98"  // Verde menta suave
 ];
 
-const limit = rateLimit({
-    windowMs: 1000 * 60 * 15, // 15 minutes window
-    max: (req, res) => {
-        return 200;
-    }, // start blocking after 200 requests
-    message: (req, res) => {
-        statusCodeHandler({ statusCode: 10001 }, res);
-    },
-    skip: (req, res) => {
-        const ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
-        if (ip === 'localhost' || ip === '::1') {
-            return true;
-        }
-        return false;
-    },
-    standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
-    legacyHeaders: false, // Disable the `X-RateLimit-*` headers
-    store: RedisRateLimit
-})
+const limit = RateLimit(15, 200);
 
 router.get('/:text', limit, async (req, res) => {
 

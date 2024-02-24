@@ -1,12 +1,11 @@
 const { Router } = require('express');
 const router = Router();
 const { join } = require('node:path');
-const rateLimit = require('express-rate-limit')
 const { Rettiwt } = require("rettiwt-api")
 const axios = require('axios');
 
 const { Cache } = require(join(__basedir, 'utils', 'cache'));
-const RedisRateLimit = require(join(__basedir, 'utils', 'rate-limit'));
+const RateLimit = require(join(__basedir, 'utils', 'rate-limit'));
 const { statusCodeHandler } = require(join(__basedir, 'utils', 'status-code-handler'));
 const { responseHandler } = require(join(__basedir, 'utils', 'utils'));
 
@@ -19,27 +18,31 @@ const followingsCache = new Cache("twitter-users-followings", 0, 60 * 60 * 6)
 
 const rettiwt = new Rettiwt({ apiKey: process.env.TWITTER_TOKEN });
 
-const limit = rateLimit({
-    windowMs: 1000 * 60 * 15, // 15 minutes
-    max: (req, res) => {
-        return 50;
-    }, // start blocking after 50 requests
-    message: (req, res) => {
-        statusCodeHandler({ statusCode: 10001 }, res);
-    },
-    skip: (req, res) => {
-        //If the request is from me, skip the rate limit
-        const ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
-        if (ip === 'localhost' || ip === '::1') {
-            return true;
-        }
+const limit = RateLimit(15, 50);
 
-        return false;
-    },
-    standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
-    legacyHeaders: false, // Disable the `X-RateLimit-*` headers
-    store: RedisRateLimit
-})
+const betterTwitterProfileData = async (data, req) => {
+    // CreatedAtTimesctamp
+    data.createdAtTimestamp = new Date(data.createdAt).getTime();
+
+    //Delete isVerified because elon musk sucks
+    delete data.isVerified;
+
+    //Get the data for the pinned tweet
+    if (data.pinnedTweet) {
+        let tweet = await axios.get(req.protocol + '://' + req.get('host') + '/v2/twitter/tweets/' + data.pinnedTweet, {
+            headers: {
+                "x-api-key": process.env.INTERNAL_API_KEY
+            }
+        }).then(res => res.data).catch(e => null);
+        if (tweet) {
+            delete tweet.tweetBy;
+        }
+        data.pinnedTweetId = data.pinnedTweet;
+        data.pinnedTweet = tweet;
+    }
+
+    return data;
+}
 
 router.get('/:username', limit, async (req, res) => {
     let { username } = req.params;
@@ -62,23 +65,7 @@ router.get('/:username', limit, async (req, res) => {
 
     if (!data?.id) return;
 
-    // CreatedAtTimesctamp
-    data.createdAtTimestamp = new Date(data.createdAt).getTime();
-
-    //Delete isVerified because elon musk is nub
-    delete data.isVerified;
-
-    // Get the pinned tweet in route "/v2/twitter/tweet/:id" and rename pinnedTweet to pinnedTweetID
-    if (data.pinnedTweet) {
-        //Get a axios get request to the user
-        let response = await axios.get(req.protocol + '://' + req.get('host') + `/v2/twitter/tweets/${data.pinnedTweet}`);
-        //If the response is 200, replace the user object with the response data
-        if (response.status === 200) {
-            data.pinnedTweetID = data.pinnedTweet;
-            data.pinnedTweet = response.data;
-            if (data.pinnedTweet.tweetBy?.isVerified) delete data.pinnedTweet.tweetBy.isVerified;
-        }
-    } else delete data.pinnedTweet;
+    data = await betterTwitterProfileData(data, req);
 
     return responseHandler(req.headers.accept, res, data, "user");
 
@@ -136,8 +123,8 @@ router.get('/:username/banner', limit, async (req, res) => {
 
 })
 
-router.get('/:username/timeline', limit, async (req, res) => {
-    let { username } = req.params;
+router.get(/\/(.*?)(?:\/replies|\/tweets)/, limit, async (req, res) => {
+    let username = req.params[0];
     username = username.toLowerCase()
     let data = await userCache.get(username);
     if (!data) {

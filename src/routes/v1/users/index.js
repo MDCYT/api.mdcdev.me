@@ -1,40 +1,17 @@
 const { Router } = require('express');
 const router = Router();
 const { join } = require('node:path');
-const rateLimit = require('express-rate-limit')
 
 const HTTP = require(join(__basedir, 'utils', 'discord', 'HTTP'));
-const {UserFlags} = require(join(__basedir, 'utils', 'discord', 'flags'));
+const { UserFlags } = require(join(__basedir, 'utils', 'discord', 'flags'));
 const { Image } = require(join(__basedir, 'utils', 'discord', 'images'));
 const { Cache } = require(join(__basedir, 'utils', 'cache'));
-const RedisRateLimit = require(join(__basedir, 'utils', 'rate-limit'));
+const RateLimit = require(join(__basedir, 'utils', 'rate-limit'));
 const { statusCodeHandler } = require(join(__basedir, 'utils', 'status-code-handler'));
 
 const cache = new Cache("discord-users", 0, 60 * 60 * 24)
 
-const limit = rateLimit({
-    windowMs: 1000 * 60 * 15, // 15 minutes
-    max: (req, res) => {
-        return 50;
-    }, // start blocking after 50 requests
-    message: (req, res) => {
-        statusCodeHandler({ statusCode: 10001 }, res);
-    },
-    skip: (req, res) => {
-        //If the :id is process.env.OWNER_DISCORD_ID, skip the rate limit
-        if (req.params.id === process.env.OWNER_DISCORD_ID) return true;
-        //If the request is from me, skip the rate limit
-        const ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
-        if (ip === 'localhost' || ip === '::1') {
-            return true;
-        } 
-        
-        return false;
-    },
-    standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
-	legacyHeaders: false, // Disable the `X-RateLimit-*` headers
-    store: RedisRateLimit
-})
+const limit = RateLimit(15, 50);
 
 router.get('/:id/avatar', limit, async (req, res) => {
     // Get data from /:id
