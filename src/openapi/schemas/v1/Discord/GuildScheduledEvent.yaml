@@ -1,0 +1,215 @@
+components:
+  schemas:
+    V1DiscordGuildScheduledEvent:
+      type: object
+      required:
+        - channelId
+        - createdAt
+        - createdAtTimestamp
+        - creator
+        - creatorId
+        - description
+        - entityId
+        - entityType
+        - eventDuration
+        - eventDurationTimestamp
+        - guild_scheduled_event_exceptions
+        - guildId
+        - id
+        - image
+        - name
+        - privacyLevel
+        - recurrence_rule
+        - scheduledEndTime
+        - scheduledEndTimeTimestamp
+        - scheduledStartTime
+        - scheduledStartTimeTimestamp
+        - skuIds
+        - status
+        - user_rsvp
+        - userCount
+      properties:
+        channelId:
+          type: string
+          nullable: true
+          description: The channel id that the scheduled event is in.
+        createdAt:
+          type: string
+          format: date
+          description: When the scheduled event was created.
+        createdAtTimestamp:
+          type: integer
+          description: When the scheduled event was created as a UNIX timestamp.
+        creator:
+          $ref: '#/components/schemas/V1DiscordUser'
+          description: The user that created the scheduled event.
+        creatorId:
+          type: string
+          description: The user id that created the scheduled event.
+        description:
+          type: string
+          description: The description of the scheduled event.
+        entityId:
+          type: string
+          nullable: true
+          description: The entity id that the scheduled event is for.
+        entityMetadata:
+          type: object
+          description: The entity metadata for the scheduled event.
+          properties:
+            location:
+              type: string
+              description: The location of the scheduled event.
+            speaker_ids:
+              type: array
+              description: The speaker ids of the scheduled event.
+              items:
+                type: string
+        entityType:
+          type: integer
+          description: The entity type of the scheduled event.
+        eventDuration:
+          type: string
+          format: date
+          description: The duration of the scheduled event.
+        eventDurationTimestamp:
+          type: integer
+          description: The duration of the scheduled event in timestamp.
+        guild_scheduled_event_exceptions:
+          type: array
+          description: The exceptions of the scheduled event.
+          items:
+            type: object
+        guildId:
+          type: string
+          description: The guild id of the scheduled event.
+        id:
+          type: string
+          description: The id of the scheduled event.
+        image:
+          type: string
+          description: The image hash of the scheduled event.
+        imageURL:
+          type: string
+          description: The image URL of the scheduled event.
+        imageURLs:
+          type: object
+          description: The image URLs of the scheduled event.
+          properties:
+            '16':
+              type: string
+              description: The guild's scheduled image URL in 16x16 pixels.
+            '32':
+              type: string
+              description: The guild's scheduled image URL in 32x32 pixels.
+            '64':
+              type: string
+              description: The guild's scheduled image URL in 64x64 pixels.
+            '128':
+              type: string
+              description: The guild's scheduled image URL in 128x128 pixels.
+            '256':
+              type: string
+              description: The guild's scheduled image URL in 256x256 pixels.
+            '512':
+              type: string
+              description: The guild's scheduled image URL in 512x512 pixels.
+            '1024':
+              type: string
+              description: The guild's scheduled image URL in 1024x1024 pixels.
+            '2048':
+              type: string
+              description: The guild's scheduled image URL in 2048x2048 pixels.
+            '4096':
+              type: string
+              description: The guild's scheduled image URL in 4096x4096 pixels.
+        name:
+          type: string
+          description: The name of the scheduled event.
+        privacyLevel:
+          type: integer
+          description: The privacy level of the scheduled event.
+        recurrence_rule:
+          type: object
+          nullable: true
+          description: The recurrence rules of the scheduled event.
+          properties:
+            by_month:
+              type: array
+              nullable: true
+              description: The months of the year when the scheduled event will occur.
+              items:
+                type: integer
+            by_month_day:
+              type: array
+              nullable: true
+              description: The days of the month when the scheduled event will occur.
+              items:
+                type: integer
+            by_n_weekday:
+              type: array
+              nullable: true
+              description: The days of the week when the scheduled event will occur.
+              items:
+                type: integer
+            by_weekday:
+              type: array
+              nullable: true
+              description: The days of the week when the scheduled event will occur.
+              items:
+                type: integer
+            by_year_day:
+              type: array
+              nullable: true
+              description: The days of the year when the scheduled event will occur.
+              items:
+                type: integer
+            count:
+              type: integer
+              nullable: true
+              description: The number of times the scheduled event will occur.
+            end:
+              type: string
+              format: date
+              nullable: true
+              description: The end date of the scheduled event.
+            frequency:
+              type: integer
+              description: The frequency of the scheduled event.
+            interval:
+              type: integer
+              description: The interval between occurrences of the scheduled event.
+            start:
+              type: string
+              format: date
+              description: The start date of the scheduled event.
+        scheduledEndTime:
+          type: string
+          format: date
+          nullable: true
+          description: The end time of the scheduled event.
+        scheduledEndTimeTimestamp:
+          type: integer
+          description: The end time of the scheduled event as a UNIX timestamp.
+        scheduledStartTime:
+          type: string
+          format: date
+          description: The start time of the scheduled event.
+        scheduledStartTimeTimestamp:
+          type: integer
+          description: The start time of the scheduled event as a UNIX timestamp.
+        skuIds:
+          type: array
+          description: The SKU IDs of the scheduled event.
+          items:
+            type: string
+        status:
+          type: integer
+          description: The status of the scheduled event.
+        user_rsvp:
+          type: integer
+          description: The user's RSVP status for the scheduled event.
+          nullable: true
+        userCount:
+          type: integer
+          description: The number of users who register for the scheduled event.

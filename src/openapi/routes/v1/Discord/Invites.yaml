@@ -1,0 +1,25 @@
+/v1/invites/{code}:
+  get:
+    summary: Get a Discord invite info
+    description: Get the info about the Discord invite provided, guild, group or user invite.
+    tags: [V1 Discord Invites]
+    parameters:
+     - in: path
+       name: code
+       required: true
+       description: The code of the invite
+       schema:
+         type: string
+     - in: query
+       name: event
+       required: false
+       description: The event of the invite
+       schema:
+         type: string
+    responses:
+      200:
+        description: The info about the invite URL
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/V1DiscordInvite'

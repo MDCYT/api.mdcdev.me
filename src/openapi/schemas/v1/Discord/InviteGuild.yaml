@@ -1,0 +1,189 @@
+components:
+  schemas:
+    V1DiscordInviteGuild:
+      type: object
+      required:
+        - banner
+        - bannerURL
+        - createdAt
+        - createdAtTimestamp
+        - description
+        - features
+        - icon
+        - iconURL
+        - id
+        - isDiscoverable
+        - name
+        - nsfw
+        - nsfwLevel
+        - premiumLevel
+        - premiumSubscriptionCount
+        - splash
+        - splashURL
+        - vanityURLCode
+        - verificationLevel
+      properties:
+        banner:
+          type: string
+          nullable: true
+          description: The banner hash of the guild.
+        bannerURL: 
+          type: string
+          nullable: true
+          description: The banner URL of the guild.
+        bannerURLs:
+          type: object
+          description: An object containing the banner URLs of the guild.
+          properties:
+            '16':
+              type: string
+              description: The guild's banner in 16x16 pixels.
+            '32':
+              type: string
+              description: The guild's banner in 32x32 pixels.
+            '64':
+              type: string
+              description: The guild's banner in 64x64 pixels.
+            '128':
+              type: string
+              description: The guild's banner in 128x128 pixels.
+            '256':
+              type: string
+              description: The guild's banner in 256x256 pixels.
+            '512':
+              type: string
+              description: The guild's banner in 512x512 pixels.
+            '1024':
+              type: string
+              description: The guild's banner in 1024x1024 pixels.
+            '2048':
+              type: string
+              description: The guild's banner in 2048x2048 pixels.
+            '4096':
+              type: string
+              description: The guild's banner in 4096x4096 pixels.
+        createdAt:
+          type: string
+          format: date
+          description: The date and time when the guild was created.
+        createdAtTimestamp:
+          type: integer
+          description: The timestamp of when the guild was created.
+        description:
+          type: string
+          nullable: true
+          description: The guild's description.
+        features:
+          type: array
+          description: An array of guild features.
+          items:
+            type: string
+        icon:
+          type: string
+          nullable: true
+          description: The guild's icon hash.
+        iconURL:
+          type: string
+          nullable: true
+          description: The guild's icon URL.
+        iconURLs:
+          type: object
+          description: An object containing the guild's icon URLs.
+          properties:
+            '16':
+              type: string
+              description: The guild's icon in 16x16 pixels.
+            '32':
+              type: string
+              description: The guild's icon in 32x32 pixels.
+            '64':
+              type: string
+              description: The guild's icon in 64x64 pixels.
+            '128':
+              type: string
+              description: The guild's icon in 128x128 pixels.
+            '256':
+              type: string
+              description: The guild's icon in 256x256 pixels.
+            '512':
+              type: string
+              description: The guild's icon in 512x512 pixels.
+            '1024':
+              type: string
+              description: The guild's icon in 1024x1024 pixels.
+            '2048':
+              type: string
+              description: The guild's icon in 2048x2048 pixels.
+            '4096':
+              type: string
+              description: The guild's icon in 4096x4096 pixels.
+        id:
+          type: string
+          description: The guild's ID.
+        isDiscoverable:
+          type: boolean
+          description: Whether the guild is discoverable.
+        name:
+          type: string
+          description: The guild's name.
+        nsfw:
+          type: boolean
+          description: Whether the guild is marked as NSFW.
+        nsfwLevel:
+          type: integer
+          description: The guild's NSFW level.
+        premiumLevel:
+          type: integer
+          description: The guild's premium tier.
+        premiumSubscriptionCount:
+          type: integer
+          description: The number of boosts this guild currently has.
+        splash:
+          type: string
+          nullable: true
+          description: The guild's splash hash.
+        splashURL:
+          type: string
+          nullable: true
+          description: The guild's splash URL.
+        splashURLs:
+          type: object
+          description: An object containing the guild's splash URLs.
+          properties:
+            '16':
+              type: string
+              description: The guild's splash in 16x16 pixels.
+            '32':
+              type: string
+              description: The guild's splash in 32x32 pixels.
+            '64':
+              type: string
+              description: The guild's splash in 64x64 pixels.
+            '128':
+              type: string
+              description: The guild's splash in 128x128 pixels.
+            '256':
+              type: string
+              description: The guild's splash in 256x256 pixels.
+            '512':
+              type: string
+              description: The guild's splash in 512x512 pixels.
+            '1024':
+              type: string
+              description: The guild's splash in 1024x1024 pixels.
+            '2048':
+              type: string
+              description: The guild's splash in 2048x2048 pixels.
+            '4096':
+              type: string
+              description: The guild's splash in 4096x4096 pixels.
+        vanityURL:
+          type: string
+          nullable: true
+          description: The guild's vanity URL.
+        vanityURLCode:
+          type: string
+          description: The guild's vanity URL code.
+        verificationLevel:
+          type: integer
+          description: The guild's verification level.
