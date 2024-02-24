@@ -10,7 +10,7 @@ const { ApplicationFlags } = require(join(__basedir, 'utils', 'discord', 'flags'
 const RedisRateLimit = require(join(__basedir, 'utils', 'rate-limit'));
 const { statusCodeHandler } = require(join(__basedir, 'utils', 'status-code-handler'));
 const { Cache } = require(join(__basedir, 'utils', 'cache'));
-const { sortObject } = require(join(__basedir, 'utils', 'utils'));
+const { responseHandler } = require(join(__basedir, 'utils', 'utils'));
 
 const cache = new Cache("discord-applications", 1, 60 * 60 * 24)
 
@@ -61,9 +61,7 @@ router.get('/:id', limit, async (req, res) => {
     if (data.cover_image) {
         data.coverImageURL = new Image("ApplicationCover", data.id, data.cover_image).url;
         data.coverImageURLs = new Image("ApplicationCover", data.id, data.cover_image).sizes;
-        data.coverImage = data.cover_image;
     }
-    delete data.cover_image;
 
     //If the application has a icon, add it to the object
     if (data.icon) {
@@ -79,14 +77,6 @@ router.get('/:id', limit, async (req, res) => {
 
         data.team.members.forEach(async member => {
 
-            //Rename membership_state to membershipState
-            member.membershipState = member.membership_state;
-            delete member.membership_state;
-
-            //Rename team_id to teamId
-            member.teamId = member.team_id;
-            delete member.team_id;
-
             //Get a axios get request to the user
             let response = await axios.get(req.protocol + '://' + req.get('host') + `/v1/users/${member.user.id}`);
             //If the response is 200, replace the user object with the response data
@@ -99,10 +89,6 @@ router.get('/:id', limit, async (req, res) => {
         data.team.members = data.team.members.sort((a, b) => {
             return a.membershipState - b.membershipState;
         });
-
-        //Rename owner_user_id to ownerUserId
-        data.team.ownerUserId = data.team.owner_user_id;
-        delete data.team.owner_user_id;
     }
 
     //If the application has a owner, add it to the object
@@ -115,57 +101,10 @@ router.get('/:id', limit, async (req, res) => {
         }
     }
 
-    //Rename rpc_origins to rpcOrigins
-    data.rpcOrigins = data.rpc_origins;
-    delete data.rpc_origins;
-
-    //Rename bot_public to isBotPublic
-    data.isBotPublic = data.bot_public;
-    delete data.bot_public;
-
-    //Rename bot_require_code_grant to isBotRequireCodeGrant
-    data.isBotRequireCodeGrant = data.bot_require_code_grant;
-    delete data.bot_require_code_grant;
-
-    //Rename terms_of_service_url to termsOfServiceURL
-    data.termsOfServiceURL = data.terms_of_service_url;
-    delete data.terms_of_service_url;
-
-    //Rename privacy_policy_url to privacyPolicyURL
-    data.privacyPolicyURL = data.privacy_policy_url;
-    delete data.privacy_policy_url;
-
-    //Rename verify_key to verifyKey
-    data.verifyKey = data.verify_key;
-    delete data.verify_key;
-
-    //Rename guild_id to guildId
-    data.guildId = data.guild_id;
-    delete data.guild_id;
-
-    //Rename primary_sku_id to primarySkuId
-    data.primarySkuId = data.primary_sku_id;
-    delete data.primary_sku_id;
-
-    //Rename flags to publicFlags
-    data.publicFlags = data.flags;
-    delete data.flags;
-
     //Get the application's flags
+    data.publicFlags = data.flags;
     let flags = new ApplicationFlags(data.publicFlags);
-    data.flags = flags.getFlags();
-
-    //Rename install_params to installParams
-    data.installParams = data.install_params;
-    delete data.install_params;
-
-    //Rename custom_install_url to customInstallURL
-    data.customInstallURL = data.custom_install_url;
-    delete data.custom_install_url;
-
-    //Rename role_connections_verification_url to roleConnectionsVerificationURL
-    data.roleConnectionsVerificationURL = data.role_connections_verification_url;
-    delete data.role_connections_verification_url;
+    data.flags = flags.getFlags();    
 
     //If have id, get the user from api
     if (data.id) {
@@ -187,17 +126,7 @@ router.get('/:id', limit, async (req, res) => {
         data.createdAtTimestamp = date.getTime();
     }
 
-
-    //If have max_participants, rename it to maxParticipants
-    if (data.max_participants) {
-        data.maxParticipants = data.max_participants;
-        delete data.max_participants;
-    }
-
-    //Sort the object
-    data = sortObject(data);
-
-    return res.status(200).json(data);
+    return responseHandler(req.headers.accept, res, data, "applications");
 });
 
 module.exports = router;

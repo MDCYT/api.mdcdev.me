@@ -9,6 +9,7 @@ const { Image } = require(join(__basedir, 'utils', 'discord', 'images'));
 const { Cache } = require(join(__basedir, 'utils', 'cache'));
 const RedisRateLimit = require(join(__basedir, 'utils', 'rate-limit'));
 const { statusCodeHandler } = require(join(__basedir, 'utils', 'status-code-handler'));
+const { responseHandler } = require(join(__basedir, 'utils', 'utils'));
 
 const cache = new Cache("discord-users", 0, 60 * 60 * 24)
 
@@ -172,43 +173,8 @@ router.get('/:id', limit, async (req, res) => {
 
     delete data.avatar_decoration_data;
 
-    //Rename banner_color to bannerColor
-    data.bannerColor = data.banner_color;
-    delete data.banner_color;
-
-    //Rename accent_color to accentColor
-    data.accentColor = data.accent_color;
-    delete data.accent_color;
-
-    //Rename display_name to displayName
-    data.displayName = data.display_name;
-    delete data.display_name;
-
-    //Rename global_name to globalName
-    data.globalName = data.global_name;
-    delete data.global_name;
-
-    //Rename public_flags to publicFlags
-    data.publicFlags = data.public_flags;
-    delete data.public_flags;
-
-    //Rename bot to isBot
-    data.isBot = data.bot || false;
-    delete data.bot;
-
-    //Rename system to isSystem
-    data.isSystem = data.system || false;
-    delete data.system;
-
-    //Rename premium_type to premiumType
-    data.premiumType = data.premium_type || 0;
-    delete data.premium_type;
-
-    //Order all properties in the user object alphabetically, except for the id
-    data = Object.fromEntries(Object.entries(data).sort(([a], [b]) => a.localeCompare(b)));
-
     //Return the user object
-    res.json(data);
+    return responseHandler(req.headers.accept, res, data, "user");
 
 });
 

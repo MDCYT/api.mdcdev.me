@@ -8,6 +8,7 @@ const axios = require('axios');
 const { Cache } = require(join(__basedir, 'utils', 'cache'));
 const RedisRateLimit = require(join(__basedir, 'utils', 'rate-limit'));
 const { statusCodeHandler } = require(join(__basedir, 'utils', 'status-code-handler'));
+const { responseHandler } = require(join(__basedir, 'utils', 'utils'));
 
 const userCache = new Cache("twitter-users", 0, 60 * 60 * 24 * 1.5)
 const tweetsCache = new Cache("twitter-users-tweets", 0, 60 * 60 * 6)
@@ -39,6 +40,49 @@ const limit = rateLimit({
     legacyHeaders: false, // Disable the `X-RateLimit-*` headers
     store: RedisRateLimit
 })
+
+router.get('/:username', limit, async (req, res) => {
+    let { username } = req.params;
+    username = username.toLowerCase()
+    let data = await userCache.get(username);
+    if (!data) {
+        await rettiwt.user.details(username).then(async details => {
+            //If the response is 200, add the user to the cache
+            if (details) {
+                await userCache.set(username, details);
+                data = details;
+            } else {
+                return statusCodeHandler({ statusCode: 404 }, res);
+            }
+        }).catch((e) => {
+            console.log(e)
+            return statusCodeHandler({ statusCode: 15001 }, res);
+        })
+    }
+
+    if (!data?.id) return;
+
+    // CreatedAtTimesctamp
+    data.createdAtTimestamp = new Date(data.createdAt).getTime();
+
+    //Delete isVerified because elon musk is nub
+    delete data.isVerified;
+
+    // Get the pinned tweet in route "/v2/twitter/tweet/:id" and rename pinnedTweet to pinnedTweetID
+    if (data.pinnedTweet) {
+        //Get a axios get request to the user
+        let response = await axios.get(req.protocol + '://' + req.get('host') + `/v2/twitter/tweets/${data.pinnedTweet}`);
+        //If the response is 200, replace the user object with the response data
+        if (response.status === 200) {
+            data.pinnedTweetID = data.pinnedTweet;
+            data.pinnedTweet = response.data;
+            if (data.pinnedTweet.tweetBy?.isVerified) delete data.pinnedTweet.tweetBy.isVerified;
+        }
+    } else delete data.pinnedTweet;
+
+    return responseHandler(req.headers.accept, res, data, "user");
+
+});
 
 router.get('/:username/avatar', limit, async (req, res) => {
     let { username } = req.params;
@@ -111,7 +155,7 @@ router.get('/:username/timeline', limit, async (req, res) => {
     }
 
     if (!data?.id) return;
-    if (data.statusesCount === 0) return res.json({ tweets: [] })
+    if (data.statusesCount === 0) return responseHandler(req.headers.accept, res, { tweets: [] }, 'tweets')
 
     if (await tweetsCache.has(username)) {
         const tweets = (await tweetsCache.get(username)).list
@@ -120,7 +164,7 @@ router.get('/:username/timeline', limit, async (req, res) => {
                 delete tweet.isVerified;
             }
         })
-        return res.json({tweets})
+        return responseHandler(req.headers.accept, res, { tweets }, 'tweets');
     }
 
     await rettiwt.user.timeline(data.id, 20).then(async details => {
@@ -132,7 +176,7 @@ router.get('/:username/timeline', limit, async (req, res) => {
                     delete tweet.isVerified;
                 }
             })
-            res.json({ tweets })
+            return responseHandler(req.headers.accept, res, { tweets }, 'tweets');
         } else {
             return statusCodeHandler({ statusCode: 15003 }, res);
         }
@@ -165,9 +209,9 @@ router.get('/:username/replies', limit, async (req, res) => {
     }
 
     if (!data?.id) return;
-    if (data.statusesCount === 0) return res.json({ tweets: [] })
+    if (data.statusesCount === 0) return responseHandler(req.headers.accept, res, { tweets: [] }, 'tweets')
 
-    if (await repliesCache.has(username)) return res.json({ tweets: (await repliesCache.get(username)).list})
+    if (await repliesCache.has(username)) return responseHandler(req.headers.accept, res, { tweets: (await repliesCache.get(username)).list }, 'tweets');
 
     await rettiwt.user.replies(data.id, 20).then(async details => {
         if (details) {
@@ -178,7 +222,7 @@ router.get('/:username/replies', limit, async (req, res) => {
                     delete tweet.isVerified;
                 }
             })
-            res.json({ tweets })
+            return responseHandler(req.headers.accept, res, { tweets }, 'tweets');
         } else {
             return statusCodeHandler({ statusCode: 15003 }, res);
         }
@@ -212,12 +256,12 @@ router.get('/:username/likes', limit, async (req, res) => {
 
     if (!data?.id) return;
 
-    if (await likesCache.has(username)) return res.json({likes: (await likesCache.get(username)).list})
+    if (await likesCache.has(username)) return responseHandler(req.headers.accept, res, { tweets: (await likesCache.get(username)).list }, 'tweets');
 
     await rettiwt.user.likes(data.id, 100).then(async details => {
         if (details) {
             await likesCache.set(username, details);
-            res.json({ likes: details.list })
+            return responseHandler(req.headers.accept, res, { tweets: details.list }, 'tweets');
         } else {
             return statusCodeHandler({ statusCode: 15003 }, res);
         }
@@ -251,7 +295,7 @@ router.get('/:username/followers', limit, async (req, res) => {
 
     if (!data?.id) return;
 
-    if (await followersCache.has(username)) return res.json({users: (await followersCache.get(username)).list})
+    if (await followersCache.has(username)) return responseHandler(req.headers.accept, res, { users: (await followersCache.get(username)).list }, "users")
 
     await rettiwt.user.followers(data.id, 100).then(async details => {
         if (details) {
@@ -260,7 +304,7 @@ router.get('/:username/followers', limit, async (req, res) => {
             followers.forEach(follower => {
                 delete follower.isVerified;
             })
-            res.json({ users: followers })
+            return responseHandler(req.headers.accept, res, { users: followers }, "users");
         } else {
             return statusCodeHandler({ statusCode: 15003 }, res);
         }
@@ -274,7 +318,7 @@ router.get('/:username/followers', limit, async (req, res) => {
 
 })
 
-router.get('/:username/followings', limit, async (req, res) => {
+router.get('/:username/following', limit, async (req, res) => {
     let { username } = req.params;
     username = username.toLowerCase()
     let data = await userCache.get(username);
@@ -294,7 +338,7 @@ router.get('/:username/followings', limit, async (req, res) => {
 
     if (!data?.id) return;
 
-    if (await followingsCache.has(username)) return res.json({users: (await followingsCache.get(username)).list})
+    if (await followingsCache.has(username)) return responseHandler(req.headers.accept, res, { users: (await followingsCache.get(username)).list }, "users")
 
     await rettiwt.user.following(data.id, 100).then(async details => {
         if (details) {
@@ -303,7 +347,7 @@ router.get('/:username/followings', limit, async (req, res) => {
             followings.forEach(user => {
                 delete user.isVerified;
             })
-            res.json({ users: followings })
+            return responseHandler(req.headers.accept, res, { users: followings }, "users");
         } else {
             return statusCodeHandler({ statusCode: 15003 }, res);
         }
@@ -316,52 +360,5 @@ router.get('/:username/followings', limit, async (req, res) => {
     return;
 
 })
-
-router.get('/:username', limit, async (req, res) => {
-    let { username } = req.params;
-    username = username.toLowerCase()
-    let data = await userCache.get(username);
-    if (!data) {
-        await rettiwt.user.details(username).then(async details => {
-            //If the response is 200, add the user to the cache
-            if (details) {
-                await userCache.set(username, details);
-                data = details;
-            } else {
-                return statusCodeHandler({ statusCode: 404 }, res);
-            }
-        }).catch((e) => {
-            console.log(e)
-            return statusCodeHandler({ statusCode: 15001 }, res);
-        })
-    }
-
-    if (!data?.id) return;
-
-    // CreatedAtTimesctamp
-    data.createdAtTimestamp = new Date(data.createdAt).getTime();
-
-    //Delete isVerified because elon musk is nub
-    delete data.isVerified;
-
-    // Get the pinned tweet in route "/v2/twitter/tweet/:id" and rename pinnedTweet to pinnedTweetID
-    if (data.pinnedTweet) {
-        //Get a axios get request to the user
-        let response = await axios.get(req.protocol + '://' + req.get('host') + `/v2/twitter/tweets/${data.pinnedTweet}`);
-        //If the response is 200, replace the user object with the response data
-        if (response.status === 200) {
-            data.pinnedTweetID = data.pinnedTweet;
-            data.pinnedTweet = response.data;
-            if (data.pinnedTweet.tweetBy?.isVerified) delete data.pinnedTweet.tweetBy.isVerified;
-        }
-    } else delete data.pinnedTweet;
-
-    //Order all properties in the user object alphabetically, except for the id
-    data = Object.fromEntries(Object.entries(data).sort(([a], [b]) => a.localeCompare(b)));
-
-    //Return the user object
-    res.json(data);
-
-});
 
 module.exports = router;
