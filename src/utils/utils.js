@@ -1,3 +1,6 @@
+const { jsXml } = require('json-xml-parse');
+const YAML = require('json-to-pretty-yaml');
+
 function sortObject(object, z_a = false) {
     let sortedObject = {};
     if (Array.isArray(object)) {
@@ -22,7 +25,7 @@ function sortObject(object, z_a = false) {
             sortedObject[key] = object[key];
         }
     });
-    
+
     return objectToCamelCase(sortedObject);
 }
 
@@ -35,7 +38,94 @@ function objectToCamelCase(obj) {
     return newObj;
 }
 
+// I need a function for convert json to xml
+function jsonToXml(json) {
+    const options = {
+        beautify: true,
+        selfClosing: true,
+        attrKey: "@",
+        contentKey: "#",
+        entityMap: {
+            '"': "&#34;",
+            "&": "&#38;"
+        },
+        declaration: {
+            encoding: 'US-ASCII',
+            standalone: 'yes'
+        }
+    }
+
+    return jsXml.toXmlString(options, json);
+}
+
+function responseHandler(acceptHeader, res, data, objectname) {
+    // Check the accept header and send the response in the correct format
+    // Sometime the accept header is like */*,application/json, get the first one
+    var rest;
+    if (acceptHeader && acceptHeader.includes(',')) {
+        rest = acceptHeader.replace(/[^,]+,/, '');
+        acceptHeader = acceptHeader.split(',')[0];
+    }
+    data = sortObject(data);
+
+    res.setHeader('Content-Type', acceptHeader);
+
+    switch (acceptHeader) {
+        case 'text/xml':
+        case 'application/xml':
+        case 'application/x-xml':
+        case 'text/x-xml':
+        case 'text/xsl':
+        case 'text/xsl+xml':
+            if (objectname) {
+                res.send(jsonToXml({ [objectname]: data }));
+            } else {
+                res.send(jsonToXml(data));
+            }
+            break;
+        case 'text/yaml':
+        case 'application/x-yaml':
+        case 'application/yaml':
+        case 'application/x-yml':
+        case 'text/x-yaml':
+        case 'text/x-yml':
+        case 'text/yml':
+            res.send(YAML.stringify(data));
+            break;
+        case 'application/json':
+        case 'text/json':
+        case 'text/x-json':
+        case 'text/javascript':
+            res.json(data);
+            break;
+        case 'text/plain':
+        case 'text/*':
+            res.setHeader('Content-Type', 'text/plain');
+            res.send(JSON.stringify(data));
+            break;
+        case 'text/miau':
+            res.setHeader('Content-Type', 'text/plain');
+            res.send(JSON.stringify(data).replace(/"/g, 'miau'));
+            break;
+        case 'country/peru':
+            // only response the peru emoji
+            res.setHeader('Content-Type', 'text/plain');
+            res.send('🇵🇪');
+            break;
+        default:
+            if (!rest) {
+                res.setHeader('Content-Type', 'application/json');
+                res.json(data);
+            } else {
+                // Check the rest of accept header
+                return responseHandler(rest, res, data, objectname);
+            }
+            break
+    }
+}
+
 module.exports = {
     sortObject,
-    objectToCamelCase
+    objectToCamelCase,
+    responseHandler
 }
