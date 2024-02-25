@@ -1,37 +1,20 @@
 const { Router } = require('express');
 const router = Router();
 const { join } = require('node:path');
-const rateLimit = require('express-rate-limit')
 const axios = require('axios');
 
 const HTTP = require(join(__basedir, 'utils', 'discord', 'HTTP'));
 const { Image } = require(join(__basedir, 'utils', 'discord', 'images'));
 const { RoleFlags } = require(join(__basedir, 'utils', 'discord', 'flags'));
 const { UserPermissions } = require(join(__basedir, 'utils', 'discord', 'permissions'));
-const RedisRateLimit = require(join(__basedir, 'utils', 'rate-limit'));
+const RateLimit = require(join(__basedir, 'utils', 'rate-limit'));
 const { statusCodeHandler } = require(join(__basedir, 'utils', 'status-code-handler'));
 const { Cache } = require(join(__basedir, 'utils', 'cache'));
-const { sortObject } = require(join(__basedir, 'utils', 'utils'));
+const { responseHandler } = require(join(__basedir, 'utils', 'utils'));
 
 const cache = new Cache("discord-guilds", 3, 60 * 60 * 3)
 
-const limit = rateLimit({
-    windowMs: 1000 * 60 * 60, // 1 hour window
-    max: (req, res) => {
-        return 50;
-    }, // start blocking after 25 requests
-    message: (req, res) => {
-        statusCodeHandler({ statusCode: 10001 }, res);
-    },
-    skip: (req, res) => {
-        //If the :id is process.env.OWNER_DISCORD_SERVER_ID, skip the rate limit
-        if (req.params.id === process.env.OWNER_DISCORD_SERVER_ID) return true;
-        return false;
-    },
-    standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
-    legacyHeaders: false, // Disable the `X-RateLimit-*` headers
-    store: RedisRateLimit
-})
+const limit = RateLimit(60, 50);
 
 router.get('/:id', limit, async (req, res) => {
     const { id } = req.params;
@@ -273,15 +256,12 @@ router.get('/:id', limit, async (req, res) => {
     data.createdTimestamp = date.getTime();
 
     data.embedChannelId = data.embed_channel_id;
-    delete embed_channel_id;
+    delete data.embed_channel_id;
 
     data.embedEnabled = data.embed_enabled || false;
-    delete embed_enabled;
+    delete data.embed_enabled;
 
-
-    data = sortObject(data);
-
-    return res.status(200).json(data);
+    return responseHandler(req.headers.accept, res, data, "guild");
 });
 
 module.exports = router;

@@ -1,35 +1,18 @@
 const { Router } = require('express');
 const router = Router();
 const { join } = require('node:path');
-const rateLimit = require('express-rate-limit')
 const axios = require('axios');
 
 const HTTP = require(join(__basedir, 'utils', 'discord', 'HTTP'));
 const { Image } = require(join(__basedir, 'utils', 'discord', 'images'));
-const RedisRateLimit = require(join(__basedir, 'utils', 'rate-limit'));
+const RateLimit = require(join(__basedir, 'utils', 'rate-limit'));
 const { statusCodeHandler } = require(join(__basedir, 'utils', 'status-code-handler'));
 const { Cache } = require(join(__basedir, 'utils', 'cache'));
 const { sortObject } = require(join(__basedir, 'utils', 'utils'));
 
 const cache = new Cache("discord-applications", 1, 60 * 60 * 24)
 
-const limit = rateLimit({
-    windowMs: 1000 * 60 * 60, // 1 hour window
-    max: (req, res) => {
-        return 50;
-    }, // start blocking after 25 requests
-    message: (req, res) => {
-        statusCodeHandler({ statusCode: 10001 }, res);
-    },
-    skip: (req, res) => {
-        //If the :id is process.env.OWNER_DISCORD_SERVER_INVITE, skip the rate limit
-        if (req.params.id === process.env.OWNER_DISCORD_SERVER_INVITE) return true;
-        return false;
-    },
-    standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
-    legacyHeaders: false, // Disable the `X-RateLimit-*` headers
-    store: RedisRateLimit
-})
+const limit = RateLimit(60, 50);
 
 router.get('/:code', limit, async (req, res) => {
     try {
@@ -95,6 +78,8 @@ router.get('/:code', limit, async (req, res) => {
                 return statusCodeHandler({ statusCode: 12001 }, res);
             }
         })
+
+        if(res.headersSent) return;
 
         if (data.guild) {
 
@@ -357,7 +342,6 @@ router.get('/:code', limit, async (req, res) => {
         }
 
         data.inviteURL = "https://discord.gg/" + data.code;
-
 
         data = sortObject(data);
 

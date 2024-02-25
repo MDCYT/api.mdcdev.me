@@ -81,6 +81,10 @@ const DiscordUserErrorCodes = {
         message: "User is a webhook",
         code: 403
     },
+    11004: {
+        message: "User dont have banner",
+        code: 404
+    }
 }
 
 const DiscordInviteErrorCodes = {

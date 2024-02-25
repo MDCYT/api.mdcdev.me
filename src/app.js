@@ -1,16 +1,54 @@
 if (process.env.NODE_ENV !== 'production') require('dotenv').config();
 
 const express = require('express');
-const app = express();
-
+const swaggerUI = require("swagger-ui-express");
+const swaggerJsDoc = require("swagger-jsdoc");
 const fs = require('node:fs');
 const { join } = require('node:path');
 
+const thePackage = require('../package.json')
 const { statusCodeHandler } = require(join(__dirname, 'utils', 'status-code-handler'));
+
+const app = express();
 
 const port = process.env.PORT || 3000;
 
 global.__basedir = __dirname;
+
+const options = {
+	definition: {
+		openapi: "3.0.0",
+		info: {
+			title: "MDCDEV API",
+			version: thePackage.version,
+			description: thePackage.description,
+            license: {
+                name: "GPL-3.0 license",
+                url: "https://github.com/MDCYT/api.mdcdev.me/blob/main/LICENSE"
+            },
+            contact: {
+                name: "Jose Ortiz (MDCDEV)",
+                url: "https://discord.gg/dae",
+                email: "me@mdcdev.me"
+            }
+		},
+		servers: [
+            {
+				url: "https://api.mdcdev.me",
+                description: "The official MDCDEV API"
+			},
+			{
+				url: "http://localhost:6969",
+                description: "The DEV instance (Only for test purposes)"
+			},
+		],
+	},
+	apis: ["./src/routes/**/*.js", "./src/openapi/**/*.yaml"]
+};
+
+const specs = swaggerJsDoc(options);
+
+app.use("/api-docs", swaggerUI.serve, swaggerUI.setup(specs));
 
 //Replace the X-Powered-By header with our own
 app.use((req, res, next) => {

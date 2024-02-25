@@ -1,7 +1,7 @@
 {
   "name": "api.mdcdev.me",
-  "version": "1.0.0",
-  "description": "An API where you can get almost all of my public information.",
+  "version": "2.0.0-beta",
+  "description": "An API where you can get a lot of information and functions for free and without having to authenticate yourself. For personal and non-commercial use.",
   "main": "index.js",
   "scripts": {
     "dev": "nodemon src/app.js",
@@ -20,14 +20,20 @@
   "homepage": "https://github.com/MDCYT/api.mdcdev.me#readme",
   "dependencies": {
     "@napi-rs/canvas": "^0.1.45",
+    "@octokit/rest": "^20.0.2",
     "axios": "^1.6.7",
     "express": "^4.18.2",
     "express-rate-limit": "^6.7.0",
+    "json-to-pretty-yaml": "^1.2.2",
+    "json-xml-parse": "^1.2.8",
     "node": "^16.19.1",
+    "node-fetch": "^2.7.0",
     "rate-limit-redis": "^3.0.1",
     "redis": "^4.6.5",
     "redis-json": "^6.0.3",
-    "rettiwt-api": "^2.5.1"
+    "rettiwt-api": "^2.5.1",
+    "swagger-jsdoc": "^6.2.8",
+    "swagger-ui-express": "^5.0.0"
   },
   "devDependencies": {
     "dotenv": "^16.0.3",
