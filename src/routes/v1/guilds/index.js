@@ -10,7 +10,7 @@ const { UserPermissions } = require(join(__basedir, 'utils', 'discord', 'permiss
 const RateLimit = require(join(__basedir, 'utils', 'rate-limit'));
 const { statusCodeHandler } = require(join(__basedir, 'utils', 'status-code-handler'));
 const { Cache } = require(join(__basedir, 'utils', 'cache'));
-const { sortObject } = require(join(__basedir, 'utils', 'utils'));
+const { responseHandler } = require(join(__basedir, 'utils', 'utils'));
 
 const cache = new Cache("discord-guilds", 3, 60 * 60 * 3)
 
@@ -261,9 +261,7 @@ router.get('/:id', limit, async (req, res) => {
     data.embedEnabled = data.embed_enabled || false;
     delete data.embed_enabled;
 
-    data = sortObject(data);
-
-    return res.status(200).json(data);
+    return responseHandler(req.headers.accept, res, data, "guild");
 });
 
 module.exports = router;

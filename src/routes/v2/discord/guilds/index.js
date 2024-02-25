@@ -136,8 +136,6 @@ router.get('/:id', limit, async (req, res) => {
     data.widget_enabled = data.widget_enabled || false;
     data.embed_enabled = data.embed_enabled || false;
 
-    data = sortObject(data);
-
     return responseHandler(req.headers.accept, res, data, "guild");
 });
 
