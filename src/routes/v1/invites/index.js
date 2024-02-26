@@ -128,7 +128,7 @@ router.get('/:code', limit, async (req, res) => {
             data.guild.createdAtTimestamp = date.getTime()
 
             //Check if exist guild.welcome_screen.welcome_channels
-            if (data.guild.welcome_screen && data.guild.welcome_screen.welcome_channels) {
+            if (data.guild.welcome_screen?.welcome_channels) {
                 //Loop through the welcome_channels
                 for (let i = 0; i < data.guild.welcome_screen.welcome_channels.length; i++) {
                     //Get the date of when the channel was created
