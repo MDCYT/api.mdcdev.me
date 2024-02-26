@@ -68,7 +68,7 @@ function responseHandler(acceptHeader, res, data, objectname) {
     }
     data = sortObject(data);
 
-    res.setHeader('Content-Type', acceptHeader);
+    res.setHeader('Content-Type', acceptHeader ? acceptHeader : 'application/json');
 
     switch (acceptHeader) {
         case 'text/xml':
