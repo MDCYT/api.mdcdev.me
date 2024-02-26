@@ -124,6 +124,7 @@ function responseHandler(acceptHeader, res, data, objectname) {
     }
 }
 
+
 module.exports = {
     sortObject,
     objectToCamelCase,

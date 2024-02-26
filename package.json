@@ -26,6 +26,7 @@
     "express-rate-limit": "^6.7.0",
     "json-to-pretty-yaml": "^1.2.2",
     "json-xml-parse": "^1.2.8",
+    "morgan": "^1.10.0",
     "node": "^16.19.1",
     "node-fetch": "^2.7.0",
     "rate-limit-redis": "^3.0.1",

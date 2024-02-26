@@ -1,13 +1,15 @@
 if (process.env.NODE_ENV !== 'production') require('dotenv').config();
 
 const express = require('express');
-const swaggerUI = require("swagger-ui-express");
-const swaggerJsDoc = require("swagger-jsdoc");
 const fs = require('node:fs');
 const { join } = require('node:path');
+const morgan = require('morgan')
+const path = require('path')
+const axios = require('axios');
 
-const thePackage = require('../package.json')
 const { statusCodeHandler } = require(join(__dirname, 'utils', 'status-code-handler'));
+const errorHandler = require(join(__dirname, 'utils', 'api', 'error-handler'));
+const apiDocsHandler = require(join(__dirname, 'utils', 'api', 'api-docs-handler'));
 
 const app = express();
 
@@ -15,40 +17,44 @@ const port = process.env.PORT || 3000;
 
 global.__basedir = __dirname;
 
-const options = {
-	definition: {
-		openapi: "3.0.0",
-		info: {
-			title: "MDCDEV API",
-			version: thePackage.version,
-			description: thePackage.description,
-            license: {
-                name: "GPL-3.0 license",
-                url: "https://github.com/MDCYT/api.mdcdev.me/blob/main/LICENSE"
-            },
-            contact: {
-                name: "Jose Ortiz (MDCDEV)",
-                url: "https://discord.gg/dae",
-                email: "me@mdcdev.me"
-            }
-		},
-		servers: [
-            {
-				url: "https://api.mdcdev.me",
-                description: "The official MDCDEV API"
-			},
-			{
-				url: "http://localhost:6969",
-                description: "The DEV instance (Only for test purposes)"
-			},
-		],
-	},
-	apis: ["./src/routes/**/*.js", "./src/openapi/**/*.yaml"]
-};
+// var accessLogStream = fs.createWriteStream(path.join(__dirname, 'access.log'), { flags: 'a' })
 
-const specs = swaggerJsDoc(options);
+// app.use(morgan('combined', { stream: accessLogStream }))
 
-app.use("/api-docs", swaggerUI.serve, swaggerUI.setup(specs));
+// Make a morgan, if detected a error, log to a discord webhook, if not, log to a file, and if the NODE_ENV is development, log to the console too
+function logToDiscord(ip, userAgent, url, method, statusCode, message) {
+    const webhook = process.env.DISCORD_WEBHOOK;
+    if (webhook) {
+        axios.post(webhook, {
+            content: `Error detected in the MDCDEV API\n\`\`\`json\n${JSON.stringify({ip, userAgent, url, method, statusCode, message }, null, 2)}\n\`\`\``
+        });
+    }
+}
+
+app.use(morgan('dev', {
+    skip: (req, res) => res.statusCode < 400,
+}));
+
+app.use((req, res, next) => {
+    res.on('finish', () => {
+        if (res.statusCode >= 400 && res.statusCode < 600) {
+            let fullUrl = req.protocol + '://' + req.get('host') + req.originalUrl;
+            logToDiscord(req.ip, req.headers['user-agent'], fullUrl, req.method, res.statusCode, res.statusMessage);
+        }
+    });
+    next();
+});
+
+const streamFile = fs.createWriteStream(path.join(__dirname, 'access.log'), { flags: 'a' });
+app.use(morgan('combined', { stream: streamFile }));
+
+app.use("/access.log", (req, res) => {
+    res.sendFile(path.join(__dirname, 'access.log'));
+});
+    
+
+app.use(errorHandler)
+app.use("/api-docs", apiDocsHandler);
 
 //Replace the X-Powered-By header with our own
 app.use((req, res, next) => {
