@@ -15,7 +15,7 @@ const limit = RateLimit(1, 60);
 
 router.get('/', limit, async (req, res) => {
     let data = await cache.get('guild-rollouts');
-    if (!data) await await axios.get(req.protocol + '://' + req.get('host') + `/v1/experiments`).then(async response => {
+    if (!data) await await axios.get(req.protocol + '://' + req.get('host') + "/v1/experiments").then(async response => {
         if (response.status === 200) {
             await cache.set('rollouts', response.data);
             data = response.data;
