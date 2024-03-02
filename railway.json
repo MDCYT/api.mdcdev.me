@@ -15,6 +15,7 @@
     },
     "deploy": {
         "numReplicas": 1,
-        "restartPolicyType": "NEVER"
+        "restartPolicyType": "ALWAYS",
+        "restartPolicyMaxRetries": 3
     }
 }

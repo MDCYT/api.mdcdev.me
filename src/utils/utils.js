@@ -62,13 +62,13 @@ function responseHandler(acceptHeader, res, data, objectname) {
     // Check the accept header and send the response in the correct format
     // Sometime the accept header is like */*,application/json, get the first one
     var rest;
-    if (acceptHeader && acceptHeader.includes(',')) {
+    if (acceptHeader?.includes(',')) {
         rest = acceptHeader.replace(/[^,]+,/, '');
         acceptHeader = acceptHeader.split(',')[0];
     }
     data = sortObject(data);
 
-    res.setHeader('Content-Type', acceptHeader);
+    res.setHeader('Content-Type', acceptHeader ? acceptHeader : 'application/json');
 
     switch (acceptHeader) {
         case 'text/xml':
@@ -123,6 +123,7 @@ function responseHandler(acceptHeader, res, data, objectname) {
             break
     }
 }
+
 
 module.exports = {
     sortObject,

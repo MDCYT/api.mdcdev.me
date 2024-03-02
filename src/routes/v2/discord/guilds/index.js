@@ -32,7 +32,6 @@ router.get('/:id', limit, async (req, res) => {
             return statusCodeHandler({ statusCode: response.status }, res);
         }
     }).catch(err => {
-        console.log(err);
         return;
     });
     if (!data) return statusCodeHandler({ statusCode: 13001 }, res);
