@@ -109,3 +109,11 @@ app.all('*', (req, res) => {
 
 
 app.listen(port, () => console.log(`API listening on port ${port}!`));
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+    // Application specific logging, throwing an error, or other logic here
+});
+process.on('uncaughtException', (err, origin) => {
+    console.error(`Caught exception: ${err}\nException origin: ${origin}`);
+});
