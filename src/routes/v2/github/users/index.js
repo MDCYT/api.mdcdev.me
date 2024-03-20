@@ -2,7 +2,8 @@ const { Router } = require('express');
 const router = Router();
 const { join } = require('node:path');
 const { Octokit } = require("@octokit/rest");
-const fecth = require('node-fetch');
+const fetch = require('node-fetch');
+const axios = require('axios');
 
 const package = require(join(__basedir, '..', 'package.json'));
 
@@ -16,9 +17,10 @@ const userFollowersCache = new Cache("github-users-followers", 0, 60 * 60 * 6)
 const userFollowingCache = new Cache("github-users-following", 0, 60 * 60 * 6)
 const userRepositoriesCache = new Cache("github-users-repositories", 0, 60 * 60 * 6)
 const userGistsCache = new Cache("github-users-gists", 0, 60 * 60 * 6)
+const userEventsCache = new Cache("github-users-events", 0, 60 * 60 * 6)
 
 const octokit = new Octokit({
-    auth: "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",
+    auth: process.env.GITHUB_TOKEN,
     userAgent: `${package.name}/${package.version}`,
     log: {
         debug: () => {},
@@ -27,7 +29,7 @@ const octokit = new Octokit({
         error: console.error
       },
       request: {
-        fetch: fecth,
+        fetch: fetch,
         userAgent: `${package.name}/${package.version}`,
       }
 });
@@ -134,6 +136,20 @@ function betterGithubGistsData(data) {
         files.push(data.files[key]);
     }
     data.files = files;
+
+    return data;
+}
+
+function betterGithubCommentData(data) {
+    data.createdAtTimestamp = new Date(data.created_at).getTime();
+    data.updatedAtTimestamp = new Date(data.updated_at).getTime();
+
+    delete data.html_url;
+    delete data.pull_request_url;
+    delete data.issue_url;
+    delete data.url;
+
+    data.user = betterGithubProfileData(data.user);
 
     return data;
 }
@@ -356,6 +372,82 @@ router.get('/:username/gists', limit, async (req, res) => {
     });
 
     return responseHandler(req.headers.accept, res, {gists: data}, "gists");
+
+});
+
+router.get('/:username/events', limit, async (req, res) => {
+    let { username } = req.params;
+    username = username.toLowerCase()
+    let data = await userEventsCache.get(username);
+    if (!data) {
+        await octokit.rest.activity.listEventsForAuthenticatedUser({username}).then(async details => {
+            //If the response is 200, add the user to the cache
+            if (details) {
+                await userEventsCache.set(username, details);
+                data = details;
+            } else {
+                return statusCodeHandler({ statusCode: 404 }, res);
+            }
+        }).catch((e) => {
+            console.log(e)
+            return statusCodeHandler({ statusCode: 15001 }, res);
+        })
+    }
+
+    if(!data.data) return;
+
+    data = data.data;
+
+    // loop every event, format the data
+    data = await Promise.all(data.map(async event => {
+        if (event.repo) {
+            let repo = event.repo.name;
+            let owner = event.repo.name.split("/")[0];
+            let details = await userCache.get(owner);
+            if (!details) {
+                await octokit.rest.users.getByUsername({username: owner}).then(async response => {
+                    if (response.status === 200) {
+                        await userCache.set(owner, response);
+                        details = response.data;
+                    }
+                }).catch(err => {
+                    return;
+                });
+            } else {
+                details = details.data;
+            }
+
+            event.repo = betterGithubProfileData(details);
+            event.repo.name = repo;
+        }
+
+        if (event.actor) {
+            let actor = event.actor.login;
+            let details = await userCache.get(actor);
+            if (!details) {
+                await octokit.rest.users.getByUsername({username: actor}).then(async response => {
+                    if (response.status === 200) {
+                        await userCache.set(actor, response);
+                        details = response.data;
+                    }
+                }).catch(err => {
+                    return;
+                });
+            } else {
+                details = details.data;
+            }
+
+            event.actor = betterGithubProfileData(details);
+        }
+
+        if(data.payload && data.payload.comment) {
+            console.log(data.payload.comment)
+            data.payload.comment = betterGithubCommentData(data.payload.comment);
+        }
+
+        return event;
+    }));
+    return responseHandler(req.headers.accept, res, {events: data}, "events");
 
 });
 
