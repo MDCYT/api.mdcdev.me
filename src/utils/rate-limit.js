@@ -14,6 +14,7 @@ module.exports = (minutes, max) => {
             },
             skip: (req) => {
                 if (req.headers['x-api-key'] === process.env.INTERNAL_API_KEY) return true;
+                if (req.headers['X-RapidAPI-Proxy-Secret'] === process.env.RAPIDAPI_PROXY_SECRET) return true;
         
                 return false;
             },
