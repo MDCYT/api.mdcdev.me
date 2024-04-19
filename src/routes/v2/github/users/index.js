@@ -441,7 +441,6 @@ router.get('/:username/events', limit, async (req, res) => {
         }
 
         if(data.payload && data.payload.comment) {
-            console.log(data.payload.comment)
             data.payload.comment = betterGithubCommentData(data.payload.comment);
         }
 
