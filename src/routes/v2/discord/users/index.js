@@ -155,4 +155,32 @@ router.get('/:id/banner', limit, async (req, res) => {
     
 })
 
+router.get(/\/(.*?)(?:\/avatar-decoration|avatardecoration|avatar-decorator|avatardecorator)/, limit, async (req, res) => {
+    const id = req.params[0].replace(/\//g, '');
+    const http = new HTTP(process.env.DISCORD_BOT_TOKEN);
+    let data = await cache.get(id);
+    if (!data) {
+        await http.get('USER_URL', "path", id).then(async response => {
+            //If the response is 200, add the user to the cache
+            if (response.status === 200) {
+                await cache.set(id, response.data);
+                data = response.data;
+            } else {
+                return statusCodeHandler({ statusCode: response.status }, res);
+            }
+        }).catch((e) => {
+            console.log(e)
+            return statusCodeHandler({ statusCode: 11001 }, res);
+        })
+    }
+
+    if(!data?.id) return;
+
+    let avatarDecoration = data.avatar_decoration_data?.asset ? new Image("AvatarDecoration", data.avatar_decoration_data.asset, {format: "png"}) : null;
+
+    if(avatarDecoration) return res.redirect(avatarDecoration.url)
+    return statusCodeHandler({ statusCode: 11004 }, res);
+    
+})
+
 module.exports = router;
