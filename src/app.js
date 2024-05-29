@@ -17,41 +17,9 @@ const port = process.env.PORT || 3000;
 
 global.__basedir = __dirname;
 
-// var accessLogStream = fs.createWriteStream(path.join(__dirname, 'access.log'), { flags: 'a' })
-
-// app.use(morgan('combined', { stream: accessLogStream }))
-
-// Make a morgan, if detected a error, log to a discord webhook, if not, log to a file, and if the NODE_ENV is development, log to the console too
-function logToDiscord(ip, userAgent, url, method, statusCode, message) {
-    const webhook = process.env.DISCORD_WEBHOOK;
-    if (webhook) {
-        axios.post(webhook, {
-            content: `Error detected in the MDCDEV API\n\`\`\`json\n${JSON.stringify({ip, userAgent, url, method, statusCode, message }, null, 2)}\n\`\`\``
-        });
-    }
-}
-
 app.use(morgan('dev', {
     skip: (req, res) => res.statusCode < 400,
 }));
-
-app.use((req, res, next) => {
-    res.on('finish', () => {
-        if (res.statusCode >= 400 && res.statusCode < 600) {
-            let fullUrl = req.protocol + '://' + req.get('host') + req.originalUrl;
-            logToDiscord(req.ip, req.headers['user-agent'], fullUrl, req.method, res.statusCode, res.statusMessage);
-        }
-    });
-    next();
-});
-
-const streamFile = fs.createWriteStream(path.join(__dirname, 'access.log'), { flags: 'a' });
-app.use(morgan('combined', { stream: streamFile }));
-
-app.use("/access.log", (req, res) => {
-    res.sendFile(path.join(__dirname, 'access.log'));
-});
-    
 
 app.use(errorHandler)
 app.use("/api-docs", apiDocsHandler);

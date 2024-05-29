@@ -24,9 +24,6 @@ const betterTwitterProfileData = async (data, req) => {
     // CreatedAtTimesctamp
     data.createdAtTimestamp = new Date(data.createdAt).getTime();
 
-    //Delete isVerified because elon musk sucks
-    delete data.isVerified;
-
     //Get the data for the pinned tweet
     if (data.pinnedTweet) {
         let tweet = await axios.get(req.protocol + '://' + req.get('host') + '/v2/twitter/tweets/' + data.pinnedTweet, {
@@ -335,6 +332,32 @@ router.get('/:username/following', limit, async (req, res) => {
                 delete user.isVerified;
             })
             return responseHandler(req.headers.accept, res, { users: followings }, "users");
+        } else {
+            return statusCodeHandler({ statusCode: 15003 }, res);
+        }
+
+    }).catch((e) => {
+        console.log(e)
+        return statusCodeHandler({ statusCode: 15003 }, res);
+    })
+
+    return;
+
+})
+
+router.get('/:username/media', limit, async (req, res) => {
+    let { username } = req.params;
+    username = username.toLowerCase()
+
+    let account = await axios.get(req.protocol + '://' + req.get('host') + '/v2/twitter/users/' + username, {
+        headers: {
+            "x-api-key": process.env.INTERNAL_API_KEY
+        }
+    }).then(res => res.data).catch(e => null);
+
+    await rettiwt.user.media(account.id).then(async details => {
+        if (details) {
+            return responseHandler(req.headers.accept, res, details.list, "media");
         } else {
             return statusCodeHandler({ statusCode: 15003 }, res);
         }
