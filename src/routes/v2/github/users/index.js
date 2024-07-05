@@ -3,7 +3,6 @@ const router = Router();
 const { join } = require('node:path');
 const { Octokit } = require("@octokit/rest");
 const fetch = require('node-fetch');
-const axios = require('axios');
 
 const package = require(join(__basedir, '..', 'package.json'));
 
