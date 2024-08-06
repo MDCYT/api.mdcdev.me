@@ -10,7 +10,6 @@ const { statusCodeHandler } = require(join(__basedir, 'utils', 'status-code-hand
 const { responseHandler } = require(join(__basedir, 'utils', 'utils'));
 
 const tweetsCache = new Cache("twitter-tweets", 0, 60 * 60 * 24 * 30)
-const tweetsLikesCache = new Cache("twitter-likes-tweets", 0, 60 * 60 * 24 * 30)
 const tweetsRetweetsCache = new Cache("twitter-retweets-tweets", 0, 60 * 60 * 24 * 30)
 
 const rettiwt = new Rettiwt({ apiKey: process.env.TWITTER_TOKEN });
@@ -57,36 +56,9 @@ router.get('/:id', limit, async (req, res) => {
 
 });
 
+// Deprecated: Twitter (API) doesn't allow to get the likes of a tweet, for now we will return an empty array
 router.get('/:id/likes', limit, async (req, res) => {
-    const { id } = req.params;
-    let data = await tweetsLikesCache.get(id);
-    if (!data) {
-        await rettiwt.tweet.favoriters(id).then(async details => {
-            //If the response is 200, add the user to the cache
-            if (details) {
-                await tweetsLikesCache.set(id, details);
-                data = details;
-            } else {
-                return statusCodeHandler({ statusCode: 404 }, res);
-            }
-        }).catch((e) => {
-            console.log(e)
-            return statusCodeHandler({ statusCode: 11001 }, res);
-        })
-    }
-
-    if(!data) return;
-
-    if(!data.list || data.list.length === 0) return responseHandler(req.headers.accept, res, {users: []});
-
-    // In the object are createdAt, make a createdAtTimestamp
-    data.list.forEach(like => {
-        like.createdAtTimestamp = new Date(like.createdAt).getTime();
-    });
-
-    //Return the user object
-    return responseHandler(req.headers.accept, res, {users: data.list});
-
+    return responseHandler(req.headers.accept, res, {users: [], message: "Twitter (API) doesn't allow to get the likes of a tweet"});
 });
 
 router.get('/:id/retweets', limit, async (req, res) => {
