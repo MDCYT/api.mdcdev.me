@@ -47,7 +47,6 @@ router.get('/:id', limit, async (req, res) => {
         if (response.status === 200) {
             data.quotedID = data.quoted;
             data.quoted = response.data;
-            if (data.quoted.tweetBy?.isVerified) delete data.quoted.tweetBy.isVerified;
         }
     } else delete data.quoted;
 
