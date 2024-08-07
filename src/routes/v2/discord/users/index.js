@@ -94,6 +94,14 @@ router.get('/:id', limit, async (req, res) => {
 
     delete data.avatar_decoration_data;
 
+    let clanBadge = data.clan ? new Image("ClanBadge", data.clan.identity_guild_id, data.clan.badge) : null;
+
+    let clanBadgeURL = clanBadge ? clanBadge.url : null;
+
+    data.clanBadgeURL = clanBadgeURL;
+
+    data.clanBadgeURLs = clanBadge ? clanBadge.sizes : null;
+
     //Return the user object
     return responseHandler(req.headers.accept, res, data, "user");
 

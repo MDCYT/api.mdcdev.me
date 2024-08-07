@@ -290,6 +290,18 @@ const cdnEndpoints = {
     AvatarDecoration(avatarDecorationID) {
         return `avatar-decoration-presets/${avatarDecorationID}`;
     },
+
+    /**
+     * @param {string} clanGuildID
+     * @param {string} clanBadgeHash
+     * @returns {string}
+     * @example
+     * // returns "clan-badges/123456789012345678/123456789012345678"
+     * ClanBadge("123456789012345678", "123456789012345678")
+     */
+    ClanBadge(clanGuildID, clanBadgeHash) {
+        return `clan-badges/${clanGuildID}/${clanBadgeHash}`;
+    }
 };
 
 /**
