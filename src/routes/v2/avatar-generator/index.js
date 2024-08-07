@@ -70,7 +70,7 @@ router.get('/:text', limit, async (req, res) => {
     ctx.fillStyle = backgroundcolor;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.fillStyle = fontcolor;
-    ctx.font = `${fontsize}px ${font}, roboto`;
+    ctx.font = `${fontsize}px ${font}, notocoloremoji, roboto`;
     ctx.fillText(text, canvas.width / 2 - ctx.measureText(text).width / 2, canvas.height / 2 + 12);
     // Save image to cache
     await cache.set(`${text} ${fontsize} ${size} ${fontcolor} ${backgroundcolor} ${font}`, await canvas.encode('png'));
