@@ -107,9 +107,14 @@ router.get('/:id', limit, async (req, res) => {
 
 });
 
-router.get('/:id/avatar', limit, async (req, res) => {
+router.get(/\/(\d+)\/avatar(?:\.(\w+))?$/, limit, async (req, res) => {
     // Get data from /:id
-    const { id } = req.params;
+    const id = req.params[0];
+    let ext = req.params[1];
+    
+    // If is not gif, webp or png, set it to png, if it's not seted, not set nothing
+    if (ext && !["gif", "webp", "png"].includes(ext)) ext = "png";
+
     const http = new HTTP(process.env.DISCORD_BOT_TOKEN);
     let data = await cache.get(id);
     if (!data) {
@@ -127,17 +132,22 @@ router.get('/:id/avatar', limit, async (req, res) => {
     }
 
     if(!data?.id) return;
-
-    let avatar = data.avatar ? new Image("UserAvatar", data.id, data.avatar) : new Image("DefaultUserAvatar", (data.discriminator === "0" || !data.discriminator) ? data.id : data.discriminator, { format: "png" });
+    
+    let avatar = data.avatar ? new Image("UserAvatar", data.id, data.avatar, { format: ext }) : new Image("DefaultUserAvatar", (data.discriminator === "0" || !data.discriminator) ? data.id : data.discriminator, { format: "png" });
 
     res.redirect(avatar.url)
 
     
 })
 
-router.get('/:id/banner', limit, async (req, res) => {
+router.get(/\/(\d+)\/banner(?:\.(\w+))?$/, limit, async (req, res) => {
     // Get data from /:id
-    const { id } = req.params;
+    const id = req.params[0];
+    let ext = req.params[1];
+    
+    // If is not gif, webp or png, set it to png, if it's not seted, not set nothing
+    if (ext && !["gif", "webp", "png"].includes(ext)) ext = "png";
+
     const http = new HTTP(process.env.DISCORD_BOT_TOKEN);
     let data = await cache.get(id);
     if (!data) {
@@ -156,15 +166,19 @@ router.get('/:id/banner', limit, async (req, res) => {
 
     if(!data?.id) return;
 
-    let banner = data.banner ? new Image("UserBanner", data.id, data.banner) : null;
-
+    let banner = data.banner ? new Image("UserBanner", data.id, data.banner, { format: ext }) : null;
     if(banner) return res.redirect(banner.url)
     return statusCodeHandler({ statusCode: 11004 }, res);
     
 })
 
-router.get(/\/(.*?)(?:\/avatar-decoration|avatardecoration|avatar-decorator|avatardecorator)/, limit, async (req, res) => {
+router.get(/\/(\d+)\/(?:avatar-decoration|avatardecoration|avatar-decorator|avatardecorator)(?:\.(\w+))?$/, limit, async (req, res) => {
+
     const id = req.params[0].replace(/\//g, '');
+    let ext = req.params[1] || "png";
+
+    if (!["webp", "png"].includes(ext)) ext = "png";
+
     const http = new HTTP(process.env.DISCORD_BOT_TOKEN);
     let data = await cache.get(id);
     if (!data) {
@@ -184,11 +198,10 @@ router.get(/\/(.*?)(?:\/avatar-decoration|avatardecoration|avatar-decorator|avat
 
     if(!data?.id) return;
 
-    let avatarDecoration = data.avatar_decoration_data?.asset ? new Image("AvatarDecoration", data.avatar_decoration_data.asset, {format: "png"}) : null;
+    let avatarDecoration = data.avatar_decoration_data?.asset ? new Image("AvatarDecoration", data.avatar_decoration_data.asset, {format: ext}) : null;
 
     if(avatarDecoration) return res.redirect(avatarDecoration.url)
     return statusCodeHandler({ statusCode: 11004 }, res);
-    
 })
 
 module.exports = router;
