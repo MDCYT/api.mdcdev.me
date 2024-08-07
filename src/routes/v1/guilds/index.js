@@ -145,7 +145,7 @@ router.get('/:id', limit, async (req, res) => {
         data.discoverySplashURLs = new Image("GuildDiscoverySplash", id, data.discoverySplash).sizes;
     }
 
-    data.explicitContentFilter = data.explicit_content_filter || 0;
+    data.explicitContentFilter = data.explicit_content_filter ? data.explicit_content_filter : 0;
     delete data.explicit_content_filter;
 
     data.homeHeader = data.home_header;
@@ -167,22 +167,22 @@ router.get('/:id', limit, async (req, res) => {
     data.latestOnboardingQuestionId = data.latest_onboarding_question_id;
     delete data.latest_onboarding_question_id;
 
-    data.maxMembers = data.max_members || 1;
+    data.maxMembers = data.max_members ? data.max_members : 1;
     delete data.max_members;
 
-    data.maxPresences = data.max_presences || data.maxMembers || 1;
+    data.maxPresences = data.max_presences ? data.max_presences : data.maxMembers;
     delete data.max_presences;
 
-    data.maxStageVideoChannelUsers = data.max_video_channel_users || 1;
+    data.maxStageVideoChannelUsers = data.max_video_channel_users ? data.max_video_channel_users : 1;
     delete data.max_video_channel_users;
 
-    data.maxVideoChannelUsers = data.max_video_channel_users || 1;
+    data.maxVideoChannelUsers = data.max_video_channel_users ? data.max_video_channel_users : 1;
     delete data.max_video_channel_users;
 
-    data.mfaLevel = data.mfa_level || 0;
+    data.mfaLevel = data.mfa_level ? data.mfa_level : 0;
     delete data.mfa_level;
 
-    data.nsfwLevel = data.nsfw_level || 0;
+    data.nsfwLevel = data.nsfw_level ? data.nsfw_level : 0;
     delete data.nsfw_level;
 
     data.ownerId = data.owner_id;
@@ -198,13 +198,13 @@ router.get('/:id', limit, async (req, res) => {
     data.preferredLocale = data.preferred_locale;
     delete data.preferred_locale;
 
-    data.premiumProgressBar = data.premium_progress_bar_enabled || false;
+    data.premiumProgressBar = Boolean(data.premium_progress_bar_enabled);
     delete data.premium_progress_bar_enabled;
 
-    data.premiumTier = data.premium_tier || 0;
+    data.premiumTier = data.premium_tier ? data.premium_tier : 0;
     delete data.premium_tier;
 
-    data.premiumSubscriptionCount = data.premium_subscription_count || 0;
+    data.premiumSubscriptionCount = data.premium_subscription_count ? data.premium_subscription_count : 0;
     delete data.premium_subscription_count;
 
     data.publicUpdatesChannelId = data.public_updates_channel_id;
@@ -221,13 +221,13 @@ router.get('/:id', limit, async (req, res) => {
         data.splashURLs = new Image("GuildSplash", id, data.splash).sizes;
     }
 
-    data.systemChannelFlags = data.system_channel_flags || 0;
+    data.systemChannelFlags = data.system_channel_flags ? data.system_channel_flags : 0;
     delete data.system_channel_flags;
 
     data.systemChannelId = data.system_channel_id;
     delete data.system_channel_id;
 
-    data.verificationLevel = data.verification_level || 0;
+    data.verificationLevel = data.verification_level ? data.verification_level : 0;
     delete data.verification_level;
 
     data.vanityCode = data.vanity_url_code;
@@ -240,7 +240,7 @@ router.get('/:id', limit, async (req, res) => {
     data.widgetChannelId = data.widget_channel_id;
     delete data.widget_channel_id;
 
-    data.widget = data.widget_enabled || false;
+    data.widget = Boolean(data.widget_enabled);
     delete data.widget_enabled;
 
     if(data.widgetChannelId) {
@@ -248,7 +248,7 @@ router.get('/:id', limit, async (req, res) => {
         data.widgetJSONURL = `https://discord.com/api/guilds/${id}/widget.json`;
     }
 
-    data.maxStageVideoChannelUsers = data.max_video_channel_users || 1;
+    data.maxStageVideoChannelUsers = data.max_video_channel_users ? data.max_video_channel_users : 1;
     delete data.max_video_channel_users;
 
     let date = new Date(data.id / 4194304 + 1420070400000);
@@ -258,7 +258,7 @@ router.get('/:id', limit, async (req, res) => {
     data.embedChannelId = data.embed_channel_id;
     delete data.embed_channel_id;
 
-    data.embedEnabled = data.embed_enabled || false;
+    data.embedEnabled = Boolean(data.embed_enabled);
     delete data.embed_enabled;
 
     return responseHandler(req.headers.accept, res, data, "guild");
