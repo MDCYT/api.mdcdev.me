@@ -204,4 +204,35 @@ router.get(/\/(\d+)\/(?:avatar-decoration|avatardecoration|avatar-decorator|avat
     return statusCodeHandler({ statusCode: 11004 }, res);
 })
 
+router.get(/\/(\d+)\/(?:clan-badge|clanbadge)(?:\.(\w+))?$/, limit, async (req, res) => {
+    const id = req.params[0].replace(/\//g, '');
+    let ext = req.params[1] || "png";
+
+    if (!["webp", "png", "gif"].includes(ext)) ext = "png";
+
+    const http = new HTTP(process.env.DISCORD_BOT_TOKEN);
+    let data = await cache.get(id);
+    if (!data) {
+        await http.get('USER_URL', "path", id).then(async response => {
+            //If the response is 200, add the user to the cache
+            if (response.status === 200) {
+                await cache.set(id, response.data);
+                data = response.data;
+            } else {
+                return statusCodeHandler({ statusCode: response.status }, res);
+            }
+        }).catch((e) => {
+            console.log(e)
+            return statusCodeHandler({ statusCode: 11001 }, res);
+        })
+    }
+
+    if(!data?.id) return;
+
+    let clanBadge = data.clan ? new Image("ClanBadge", data.clan.identity_guild_id, data.clan.badge, {format: ext}) : null;
+
+    if(clanBadge) return res.redirect(clanBadge.url)
+    return statusCodeHandler({ statusCode: 11004 }, res);
+})
+
 module.exports = router;
