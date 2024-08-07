@@ -1,7 +1,7 @@
 const { Router } = require('express');
 const router = Router();
 
-const { statusCodeHandler } = require(`../status-code-handler`);
+const { statusCodeHandler } = require('../status-code-handler');
 
 router.all('*', (req, res, next) => {
     try {
