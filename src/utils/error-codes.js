@@ -157,6 +157,13 @@ const GithubUserErrorCodes = {
     },
 }
 
+const GithubRepositoryErrorCodes = {
+    18001: {
+        message: "Repository not found",
+        code: 404
+    }
+}
+
 const customErrorCodes = {
     ...errorCodes,
     ...genericErrorCodes,
@@ -166,7 +173,8 @@ const customErrorCodes = {
     ...DiscordApplicationErrorCodes,
     ...TwitterUserErrorCodes,
     ...TwitterTweetErrorCodes,
-    ...GithubUserErrorCodes
+    ...GithubUserErrorCodes,
+    ...GithubRepositoryErrorCodes
 }
 
 function getCustomErrorCodes(code) {
