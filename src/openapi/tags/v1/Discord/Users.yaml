@@ -1,6 +1,0 @@
-tags:
-  name: V1 Discord Users
-  description: Get info about Discord Users
-  externalDocs:
-    description: Find out more
-    url: https://discord.com/developers/docs/resources/user#user-object

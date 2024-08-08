@@ -66,6 +66,14 @@ const genericErrorCodes = {
         message: "Discord API is currently rate limiting you, please try again later",
         code: 429
     },
+    10007: {
+        message: "Github API is currently rate limiting you, please try again later",
+        code: 429
+    },
+    10008: {
+        message: "Twitter API is currently rate limiting you, please try again later",
+        code: 429
+    },
 }
 
 const DiscordUserErrorCodes = {
@@ -84,7 +92,7 @@ const DiscordUserErrorCodes = {
     11004: {
         message: "User dont have banner",
         code: 404
-    }
+    },
 }
 
 const DiscordInviteErrorCodes = {
@@ -135,6 +143,27 @@ const TwitterUserErrorCodes = {
     }
 }
 
+const TwitterTweetErrorCodes = {
+    17001: {
+        message: "Tweet not found",
+        code: 404
+    }
+}
+
+const GithubUserErrorCodes = {
+    16001: {
+        message: "User not found",
+        code: 404
+    },
+}
+
+const GithubRepositoryErrorCodes = {
+    18001: {
+        message: "Repository not found",
+        code: 404
+    }
+}
+
 const customErrorCodes = {
     ...errorCodes,
     ...genericErrorCodes,
@@ -142,7 +171,10 @@ const customErrorCodes = {
     ...DiscordGuildErrorCodes,
     ...DiscordInviteErrorCodes,
     ...DiscordApplicationErrorCodes,
-    ...TwitterUserErrorCodes
+    ...TwitterUserErrorCodes,
+    ...TwitterTweetErrorCodes,
+    ...GithubUserErrorCodes,
+    ...GithubRepositoryErrorCodes
 }
 
 function getCustomErrorCodes(code) {

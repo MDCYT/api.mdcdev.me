@@ -155,6 +155,7 @@ router.get('/:id', limit, async (req, res) => {
             }).catch((_e) => {
             });
         } catch (_e) {
+            return statusCodeHandler({ statusCode: 11001 }, res);
         }
         let date = new Date(parseInt(data.id) / 4194304 + 1420070400000);
 

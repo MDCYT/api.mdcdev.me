@@ -93,7 +93,9 @@ router.get('/:id', limit, async (req, res) => {
                 }
             }).catch((_e) => {
             });
-        } catch (_e) {
+        } catch ([]) {
+            // Some apps don't have a user, or have a user id different from the application id
+            data.user = null;
         }
         let date = new Date(parseInt(data.id) / 4194304 + 1420070400000);
 

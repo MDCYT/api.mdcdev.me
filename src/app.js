@@ -4,12 +4,9 @@ const express = require('express');
 const fs = require('node:fs');
 const { join } = require('node:path');
 const morgan = require('morgan')
-const path = require('path')
-const axios = require('axios');
 
 const { statusCodeHandler } = require(join(__dirname, 'utils', 'status-code-handler'));
 const errorHandler = require(join(__dirname, 'utils', 'api', 'error-handler'));
-const apiDocsHandler = require(join(__dirname, 'utils', 'api', 'api-docs-handler'));
 
 const app = express();
 
@@ -22,15 +19,14 @@ app.use(morgan('dev', {
 }));
 
 app.use(errorHandler)
-app.use("/api-docs", apiDocsHandler);
 
 //Replace the X-Powered-By header with our own
 app.use((req, res, next) => {
-    res.setHeader('X-Powered-By', 'Discord API');
-    res.setHeader('X-Developer', 'MDC#0001');
+    res.setHeader('X-Powered-By', 'Any Dev Code');
+    res.setHeader('X-Developer', 'MDCDEV');
     res.setHeader('X-Developer-Website', 'https://mdcdev.me');
     res.setHeader('X-Developer-Github', 'https://github.com/MDCYT');
-    res.setHeader('X-Developer-Twitter', 'https://twitter.com/MDCYT');
+    res.setHeader('X-Developer-Twitter', 'https://twitter.com/MDC_DEV');
     res.setHeader('X-Developer-Discord', 'https://discord.gg/dae');
     next();
 });

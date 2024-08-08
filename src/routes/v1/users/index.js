@@ -170,15 +170,15 @@ router.get('/:id', limit, async (req, res) => {
     delete data.public_flags;
 
     //Rename bot to isBot
-    data.isBot = data.bot || false;
+    data.isBot = Boolean(data.bot);
     delete data.bot;
 
     //Rename system to isSystem
-    data.isSystem = data.system || false;
+    data.isSystem = Boolean(data.system);
     delete data.system;
 
     //Rename premium_type to premiumType
-    data.premiumType = data.premium_type || 0;
+    data.premiumType = data.premium_type ? data.premium_type : 0;
     delete data.premium_type;
 
     //Order all properties in the user object alphabetically, except for the id

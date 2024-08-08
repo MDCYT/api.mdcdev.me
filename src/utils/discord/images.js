@@ -290,6 +290,18 @@ const cdnEndpoints = {
     AvatarDecoration(avatarDecorationID) {
         return `avatar-decoration-presets/${avatarDecorationID}`;
     },
+
+    /**
+     * @param {string} clanGuildID
+     * @param {string} clanBadgeHash
+     * @returns {string}
+     * @example
+     * // returns "clan-badges/123456789012345678/123456789012345678"
+     * ClanBadge("123456789012345678", "123456789012345678")
+     */
+    ClanBadge(clanGuildID, clanBadgeHash) {
+        return `clan-badges/${clanGuildID}/${clanBadgeHash}`;
+    }
 };
 
 /**
@@ -362,7 +374,7 @@ class Image {
         const url = typeof endpoint === "function" ? endpoint(this.options) : endpoint;
 
         //Check if the format is null, if it is, set it to png or gif depending if the dynamic option is true, if not, set it to the format depending on the "a_" in the url, if is dynamic, set it to gif, if not, set it to webp
-        const format = this.format === null ? this.dynamic ? "gif" : url.includes("a_") ? "gif" : "webp" : this.format;
+        const format = this.format === null ? this.dynamic ? "gif" : url.includes("a_") ? "gif" : "webp" : (this.format === "gif" && !url.includes("a_")) ? "webp" : this.format;
 
         //Check if the size is null, if it is, set it to 1024, if not, set it to the size
         const size = this.size === null ? 1024 : this.size;
