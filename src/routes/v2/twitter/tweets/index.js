@@ -30,7 +30,7 @@ router.get('/:id', limit, async (req, res) => {
             }
         }).catch((e) => {
             console.log(e)
-            return statusCodeHandler({ statusCode: 11001 }, res);
+            return statusCodeHandler({ statusCode: 17001 }, res);
         })
     }
 
@@ -74,7 +74,7 @@ router.get('/:id/retweets', limit, async (req, res) => {
             }
         }).catch((e) => {
             console.log(e)
-            return statusCodeHandler({ statusCode: 11001 }, res);
+            return statusCodeHandler({ statusCode: 17001 }, res);
         })
     }
 
