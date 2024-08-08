@@ -21,6 +21,7 @@ const userGistsCache = new Cache("github-users-gists", 0, 60 * 60 * 6)
 const userEventsCache = new Cache("github-users-events", 0, 60 * 60 * 6)
 const userOrganizationsCache = new Cache("github-users-organizations", 0, 60 * 60 * 6)
 const userStarsCache = new Cache("github-users-stars", 0, 60 * 60 * 6)
+const userWatchedCache = new Cache("github-users-watched", 0, 60 * 60 * 6)
 
 const octokit = new Octokit({
     auth: process.env.GITHUB_TOKEN,
@@ -391,6 +392,39 @@ router.get('/:username/stars', limit, async (req, res) => {
             //If the response is 200, add the user to the cache
             if (details) {
                 await userStarsCache.set(username, details);
+                data = details;
+            } else {
+                return statusCodeHandler({ statusCode: 404 }, res);
+            }
+        }).catch((e) => {
+            console.log(e)
+            return statusCodeHandler({ statusCode: 16001 }, res);
+        })
+    }
+
+    if(!data.data) return;
+
+    data = data.data;
+
+    //Fow every owner, format the data
+    data = data.map(repo => {
+        repo = betterGithubRepositoriesData(repo);
+        return repo;
+    });
+
+    return responseHandler(req.headers.accept, res, {repositories: data}, "repositories");
+
+});
+
+router.get('/:username/watched', limit, async (req, res) => {
+    let { username } = req.params;
+    username = username.toLowerCase()
+    let data = await userWatchedCache.get(username);
+    if (!data) {
+        await octokit.rest.activity.listWatchedReposForAuthenticatedUser({username}).then(async details => {
+            //If the response is 200, add the user to the cache
+            if (details) {
+                await userWatchedCache.set(username, details);
                 data = details;
             } else {
                 return statusCodeHandler({ statusCode: 404 }, res);
