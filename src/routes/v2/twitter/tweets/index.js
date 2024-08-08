@@ -92,4 +92,101 @@ router.get('/:id/retweets', limit, async (req, res) => {
 
 });
 
+router.get('/:id/media', limit, async (req, res) => {
+    const { id } = req.params;
+    let data = await tweetsCache.get(id);
+    if (!data) {
+        await rettiwt.tweet.details(id).then(async details => {
+            //If the response is 200, add the user to the cache
+            if (details) {
+                await tweetsCache.set(id, details);
+                data = details;
+            } else {
+                return statusCodeHandler({ statusCode: 404 }, res);
+            }
+        }).catch((e) => {
+            console.log(e)
+            return statusCodeHandler({ statusCode: 17001 }, res);
+        })
+    }
+
+    if(!data?.id) return;
+
+    if(!data.media || data.media.length === 0) return responseHandler(req.headers.accept, res, {media: []});
+
+    //Return the user object
+    return responseHandler(req.headers.accept, res, {media: data.media});
+
+});
+
+router.get('/:id/media/:number', limit, async (req, res) => {
+    const { id } = req.params;
+    let { number } = req.params;
+
+    number = parseInt(number);
+    
+    if (isNaN(number)) number = 1;
+
+    number = ( (number - 1) < 0 ) ? 0 : number - 1;
+    
+    let data = await tweetsCache.get(id);
+    if (!data) {
+        await rettiwt.tweet.details(id).then(async details => {
+            //If the response is 200, add the user to the cache
+            if (details) {
+                await tweetsCache.set(id, details);
+                data = details;
+            } else {
+                return statusCodeHandler({ statusCode: 404 }, res);
+            }
+        }).catch((e) => {
+            console.log(e)
+            return statusCodeHandler({ statusCode: 17001 }, res);
+        })
+    }
+
+    if(!data?.id) return;
+
+    if(!data.media || data.media.length === 0) return responseHandler(req.headers.accept, res, {media: []});
+
+    //Return the user object
+    return responseHandler(req.headers.accept, res, {media: data.media[number]});
+
+});
+
+router.get('/:id/media/:number/preview', limit, async (req, res) => {
+    const { id } = req.params;
+    let { number } = req.params;
+
+    number = parseInt(number);
+    
+    if (isNaN(number)) number = 1;
+
+    number = ( (number - 1) < 0 ) ? 0 : number - 1;
+    
+    let data = await tweetsCache.get(id);
+    if (!data) {
+        await rettiwt.tweet.details(id).then(async details => {
+            //If the response is 200, add the user to the cache
+            if (details) {
+                await tweetsCache.set(id, details);
+                data = details;
+            } else {
+                return statusCodeHandler({ statusCode: 404 }, res);
+            }
+        }).catch((e) => {
+            console.log(e)
+            return statusCodeHandler({ statusCode: 17001 }, res);
+        })
+    }
+
+    if(!data?.id) return;
+
+    if(!data.media || data.media.length === 0) return responseHandler(req.headers.accept, res, {media: []});
+
+    // Redirect to the media
+    return res.redirect(data.media[number].url);
+
+});
+
 module.exports = router;
