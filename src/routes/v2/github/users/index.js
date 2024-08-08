@@ -6,6 +6,8 @@ const fetch = require('node-fetch');
 
 const package = require(join(__basedir, '..', 'package.json'));
 
+const { betterGithubProfileData, betterGithubRepositoriesData, betterGithubGistsData, betterGithubCommentData } = require(join(__basedir, 'utils', 'github', 'utils'));
+
 const { Cache } = require(join(__basedir, 'utils', 'cache'));
 const RateLimit = require(join(__basedir, 'utils', 'rate-limit'));
 const { statusCodeHandler } = require(join(__basedir, 'utils', 'status-code-handler'));
@@ -17,6 +19,7 @@ const userFollowingCache = new Cache("github-users-following", 0, 60 * 60 * 6)
 const userRepositoriesCache = new Cache("github-users-repositories", 0, 60 * 60 * 6)
 const userGistsCache = new Cache("github-users-gists", 0, 60 * 60 * 6)
 const userEventsCache = new Cache("github-users-events", 0, 60 * 60 * 6)
+const userOrganizationsCache = new Cache("github-users-organizations", 0, 60 * 60 * 6)
 
 const octokit = new Octokit({
     auth: process.env.GITHUB_TOKEN,
@@ -35,124 +38,6 @@ const octokit = new Octokit({
 
 const limit = RateLimit(15, 50);
 
-function betterGithubProfileData(data) {
-    data.createdAtTimestamp = new Date(data.created_at).getTime();
-    data.updatedAtTimestamp = new Date(data.updated_at).getTime();
-
-    delete data.events_url;
-    delete data.followers_url;
-    delete data.following_url;
-    delete data.gists_url;
-    delete data.hub_url;
-    delete data.organizations_url;
-    delete data.received_events_url;
-    delete data.repos_url;
-    delete data.starred_url;
-    delete data.subscriptions_url;
-    delete data.html_url;
-    data.username = data.login;
-    delete data.login;
-
-    data.url = `https://github.com/${data.username}`;
-
-    return data;
-}
-
-function betterGithubRepositoriesData(data) {
-    data.createdAtTimestamp = new Date(data.created_at).getTime();
-    data.updatedAtTimestamp = new Date(data.updated_at).getTime();
-    data.pushedAtTimestamp = new Date(data.pushed_at).getTime();
-
-    delete data.archive_url;
-    delete data.assignees_url;
-    delete data.blobs_url;
-    delete data.branches_url;
-    delete data.clone_url;
-    delete data.collaborators_url;
-    delete data.comments_url;
-    delete data.commits_url;
-    delete data.compare_url;
-    delete data.contents_url;
-    delete data.contributors_url;
-    delete data.deployments_url;
-    delete data.description;
-    delete data.downloads_url;
-    delete data.events_url;
-    delete data.forks_url;
-    delete data.git_commits_url;
-    delete data.git_refs_url;
-    delete data.git_tags_url;
-    delete data.git_url;
-    delete data.hooks_url;
-    delete data.issue_comment_url;
-    delete data.issue_events_url;
-    delete data.issues_url;
-    delete data.keys_url;
-    delete data.labels_url;
-    delete data.languages_url;
-    delete data.merges_url;
-    delete data.milestones_url;
-    delete data.notifications_url;
-    delete data.pulls_url;
-    delete data.releases_url;
-    delete data.ssh_url;
-    delete data.stargazers_url;
-    delete data.statuses_url;
-    delete data.subscribers_url;
-    delete data.subscription_url;
-    delete data.svn_url;
-    delete data.tags_url;
-    delete data.teams_url;
-    delete data.trees_url;
-    delete data.permissions;
-
-    data.url = data.html_url;
-    delete data.html_url;
-
-    data.owner = betterGithubProfileData(data.owner);
-
-    return data;
-}
-
-function betterGithubGistsData(data) {
-    data.createdAtTimestamp = new Date(data.created_at).getTime();
-    data.updatedAtTimestamp = new Date(data.updated_at).getTime();
-
-    delete data.comments_url;
-    delete data.commits_url;
-    delete data.forks_url;
-    delete data.git_pull_url;
-    delete data.git_push_url;
-
-    data.url = data.html_url;
-    delete data.html_url;
-
-    data.owner = betterGithubProfileData(data.owner);
-
-    //Convert files to a array
-    let files = [];
-    for (let key in data.files) {
-        files.push(data.files[key]);
-    }
-    data.files = files;
-
-    return data;
-}
-
-function betterGithubCommentData(data) {
-    data.createdAtTimestamp = new Date(data.created_at).getTime();
-    data.updatedAtTimestamp = new Date(data.updated_at).getTime();
-
-    delete data.html_url;
-    delete data.pull_request_url;
-    delete data.issue_url;
-    delete data.url;
-
-    data.user = betterGithubProfileData(data.user);
-
-    return data;
-}
-
 router.get('/:username', limit, async (req, res) => {
     let { username } = req.params;
     username = username.toLowerCase()
@@ -168,7 +53,7 @@ router.get('/:username', limit, async (req, res) => {
             }
         }).catch((e) => {
             console.log(e)
-            return statusCodeHandler({ statusCode: 15001 }, res);
+            return statusCodeHandler({ statusCode: 16001 }, res);
         })
     }
 
@@ -180,7 +65,7 @@ router.get('/:username', limit, async (req, res) => {
 
 });
 
-router.get('/:username/avatar', limit, async (req, res) => {
+router.get('/:username/avatar(:ext)?', limit, async (req, res) => {
     let { username } = req.params;
     username = username.toLowerCase()
     let data = await userCache.get(username);
@@ -195,7 +80,7 @@ router.get('/:username/avatar', limit, async (req, res) => {
             }
         }).catch((e) => {
             console.log(e)
-            return statusCodeHandler({ statusCode: 15001 }, res);
+            return statusCodeHandler({ statusCode: 16001 }, res);
         })
     }
 
@@ -222,7 +107,7 @@ router.get('/:username/followers', limit, async (req, res) => {
             }
         }).catch((e) => {
             console.log(e)
-            return statusCodeHandler({ statusCode: 15001 }, res);
+            return statusCodeHandler({ statusCode: 16001 }, res);
         })
     }
 
@@ -273,7 +158,7 @@ router.get('/:username/following', limit, async (req, res) => {
             }
         }).catch((e) => {
             console.log(e)
-            return statusCodeHandler({ statusCode: 15001 }, res);
+            return statusCodeHandler({ statusCode: 16001 }, res);
         })
     }
 
@@ -324,7 +209,7 @@ router.get(/\/(.*?)(?:\/repos|\/repositories)/, limit, async (req, res) => {
             }
         }).catch((e) => {
             console.log(e)
-            return statusCodeHandler({ statusCode: 15001 }, res);
+            return statusCodeHandler({ statusCode: 16001 }, res);
         })
     }
 
@@ -357,7 +242,7 @@ router.get('/:username/gists', limit, async (req, res) => {
             }
         }).catch((e) => {
             console.log(e)
-            return statusCodeHandler({ statusCode: 15001 }, res);
+            return statusCodeHandler({ statusCode: 16001 }, res);
         })
     }
 
@@ -389,7 +274,7 @@ router.get('/:username/events', limit, async (req, res) => {
             }
         }).catch((e) => {
             console.log(e)
-            return statusCodeHandler({ statusCode: 15001 }, res);
+            return statusCodeHandler({ statusCode: 16001 }, res);
         })
     }
 
@@ -447,6 +332,53 @@ router.get('/:username/events', limit, async (req, res) => {
     }));
     return responseHandler(req.headers.accept, res, {events: data}, "events");
 
+});
+
+router.get(/\/(.*?)(?:\/orgs|\/organizations)/, limit, async (req, res) => {
+
+    let username = req.params[0];
+    username = username.toLowerCase()
+    let data = await userOrganizationsCache.get(username);
+
+    if (!data) {
+        await octokit.rest.orgs.listForUser({username}).then(async details => {
+            //If the response is 200, add the user to the cache
+            if (details) {
+                await userOrganizationsCache.set(username, details);
+                data = details;
+            } else {
+                return statusCodeHandler({ statusCode: 404 }, res);
+            }
+        }).catch((e) => {
+            console.log(e)
+            return statusCodeHandler({ statusCode: 16001 }, res);
+        })
+    }
+
+    if(!data.data) return;
+
+    data = data.data;
+
+    // loop every event, format the data
+    data = await Promise.all(data.map(async org => {
+        let details = await userCache.get(org.login);
+        if (!details) {
+            await octokit.rest.users.getByUsername({username: org.login}).then(async response => {
+                if (response.status === 200) {
+                    await userCache.set(org.login, response);
+                    details = response.data;
+                }
+            }).catch(err => {
+                return;
+            });
+        } else {
+            details = details.data;
+        }
+
+        return betterGithubProfileData(details);
+    }));
+
+    return responseHandler(req.headers.accept, res, {organizations: data}, "organizations");
 });
 
 module.exports = router;
