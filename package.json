@@ -21,6 +21,9 @@
   "dependencies": {
     "@napi-rs/canvas": "^0.1.45",
     "@octokit/rest": "^20.0.2",
+    "@sentry/cli": "^2.35.0",
+    "@sentry/node": "^8.28.0",
+    "@sentry/profiling-node": "^8.28.0",
     "axios": "^1.6.7",
     "express": "^4.18.2",
     "express-rate-limit": "^6.7.0",

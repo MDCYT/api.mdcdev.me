@@ -28,13 +28,14 @@ router.get('/:id', limit, async (req, res) => {
             } else {
                 return statusCodeHandler({ statusCode: 404 }, res);
             }
+            return null;
         }).catch((e) => {
             console.log(e)
             return statusCodeHandler({ statusCode: 17001 }, res);
         })
     }
 
-    if(!data?.id) return;
+    if(!data?.id) return null;
 
     // CreatedAtTimesctamp
     data.createdAtTimestamp = new Date(data.createdAt).getTime();
@@ -42,7 +43,7 @@ router.get('/:id', limit, async (req, res) => {
     // Get the pinned tweet in route "/v2/twitter/tweet/:id" and rename quoted to quotedID
     if (data.quoted) {
         //Get a axios get request to the user
-        let response = await axios.get(req.protocol + '://' + req.get('host') + `/v2/twitter/tweets/${data.quoted}`);
+        const response = await axios.get(`${req.protocol}://${req.get('host')}/v2/twitter/tweets/${data.quoted}`);
         //If the response is 200, replace the user object with the response data
         if (response.status === 200) {
             data.quotedID = data.quoted;
@@ -56,7 +57,7 @@ router.get('/:id', limit, async (req, res) => {
 });
 
 // Deprecated: Twitter (API) doesn't allow to get the likes of a tweet, for now we will return an empty array
-router.get('/:id/likes', limit, async (req, res) => {
+router.get('/:id/likes', limit, (req, res) => {
     return responseHandler(req.headers.accept, res, {users: [], message: "Twitter (API) doesn't allow to get the likes of a tweet"});
 });
 
@@ -72,13 +73,14 @@ router.get('/:id/retweets', limit, async (req, res) => {
             } else {
                 return statusCodeHandler({ statusCode: 404 }, res);
             }
+            return null;
         }).catch((e) => {
             console.log(e)
             return statusCodeHandler({ statusCode: 17001 }, res);
         })
     }
 
-    if(!data) return;
+    if(!data) return null;
 
     if(!data.list || data.list.length === 0) return responseHandler(req.headers.accept, res, {users: []});
 
@@ -104,13 +106,14 @@ router.get('/:id/media', limit, async (req, res) => {
             } else {
                 return statusCodeHandler({ statusCode: 404 }, res);
             }
+            return null;
         }).catch((e) => {
             console.log(e)
             return statusCodeHandler({ statusCode: 17001 }, res);
         })
     }
 
-    if(!data?.id) return;
+    if(!data?.id) return null;
 
     if(!data.media || data.media.length === 0) return responseHandler(req.headers.accept, res, {media: []});
 
@@ -139,13 +142,14 @@ router.get('/:id/media/:number', limit, async (req, res) => {
             } else {
                 return statusCodeHandler({ statusCode: 404 }, res);
             }
+            return null;
         }).catch((e) => {
             console.log(e)
             return statusCodeHandler({ statusCode: 17001 }, res);
         })
     }
 
-    if(!data?.id) return;
+    if(!data?.id) return null;
 
     if(!data.media || data.media.length === 0) return responseHandler(req.headers.accept, res, {media: []});
 
@@ -174,15 +178,18 @@ router.get('/:id/media/:number/preview', limit, async (req, res) => {
             } else {
                 return statusCodeHandler({ statusCode: 404 }, res);
             }
+            return null;
         }).catch((e) => {
             console.log(e)
             return statusCodeHandler({ statusCode: 17001 }, res);
         })
     }
 
-    if(!data?.id) return;
+    if(!data?.id) return null;
 
     if(!data.media || data.media.length === 0) return responseHandler(req.headers.accept, res, {media: []});
+
+    if(!data.media[number]) return responseHandler(req.headers.accept, res, {media: []});
 
     // Redirect to the media
     return res.redirect(data.media[number].url);
