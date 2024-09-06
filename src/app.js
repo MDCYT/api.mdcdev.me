@@ -3,7 +3,8 @@ if (process.env.NODE_ENV !== 'production') require('dotenv').config();
 const express = require('express');
 const fs = require('node:fs');
 const { join } = require('node:path');
-const morgan = require('morgan')
+const morgan = require('morgan');
+require("./utils/instrument");
 
 const { statusCodeHandler } = require(join(__dirname, 'utils', 'status-code-handler'));
 const errorHandler = require(join(__dirname, 'utils', 'api', 'error-handler'));
@@ -43,8 +44,8 @@ app.use((req, res, next) => {
 //We have a folder called "routes", and inside that folder we have a folders called "v1", "v2", "v3" and more, inside those folders we have a folder called "users", "guilds" and more, inside those folders we have a file called "@me.js", "index.js" and more
 //This is how we require all the files in the "routes" folder
 //The route is the path to the file, and the file is the file that we require
-async function requireRoutes(path, fullpath = "") {
-    fs.readdirSync(join(__dirname, path)).forEach(async file => {
+function requireRoutes(path, fullpath = "") {
+    fs.readdirSync(join(__dirname, path)).forEach(file => {
         if (file.endsWith(".js")) {
             if (file === "index.js") {
                 app.use(`${fullpath.replace("~", ":")}`, require(join(__dirname, path, file)));
@@ -57,7 +58,7 @@ async function requireRoutes(path, fullpath = "") {
             // console.log(`Loaded route: ${fullpath}/${file.replace(".js", "")}`);
             //If the file is called index.js, we don't want to add the file name to the route
         } else {
-            await requireRoutes(join(path, file), `${fullpath}/${file}`);
+            requireRoutes(join(path, file), `${fullpath}/${file}`);
         }
 
     });
