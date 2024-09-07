@@ -27,6 +27,7 @@ class UserFlags {
             "SPAMMER": 1 << 20,
             "DISABLE_PREMIUM": 1 << 21,
             "ACTIVE_DEVELOPER": 1 << 22,
+            "PROVISIONAL_ACCOUNT": 1 << 23,
             // 31 or more => n
             "DELETED": 1n << 34n,
             "DISABLED_SUSPICIOUS_ACTIVITY": 1n << 35n,
