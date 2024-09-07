@@ -23,7 +23,12 @@ router.get('/', limit, async (req, res) => {
             return statusCodeHandler({ statusCode: response.status }, res);
         }
     }).catch(err => {
-        return;
+        if (err) {
+            console.log(err.stack);
+            return null;
+        }
+
+        return statusCodeHandler({ statusCode: 503 }, res);
     }
     );
 

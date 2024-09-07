@@ -17,12 +17,12 @@ const limit = RateLimit(15, 25);
 
 router.get('/:id', limit, async (req, res) => {
     const { id } = req.params;
-    const http = new HTTP(process.env.DISCORD_BOT_TOKEN);
-    let data = await cache.get(id);
+    const http = new HTTP(req.headers["discord-bot-token"] || process.env.DISCORD_BOT_TOKEN);
+    let data = req.headers["discord-bot-token"] ? null : await cache.get(id);
     if (!data) await http.get('APPLICATION_URL', "path", id).then(async response => {
         //If the response is 200, add the user to the cache
         if (response.status === 200) {
-            await cache.set(id, response.data);
+            if (!req.headers["discord-bot-token"]) await cache.set(id, response.data);
             data = response.data;
         } else {
             return statusCodeHandler({ statusCode: response.status }, res);
@@ -30,8 +30,12 @@ router.get('/:id', limit, async (req, res) => {
     }).catch(err => {
         return statusCodeHandler({ statusCode: 14001 }, res);
     });
+
+    if(res.headersSent) return null;
+
     if (!data) return statusCodeHandler({ statusCode: 14001 }, res);
 
+    data.raw = JSON.parse(JSON.stringify(data));
 
     //If the application has a cover image, add it to the object
     if (data.cover_image) {
@@ -54,7 +58,11 @@ router.get('/:id', limit, async (req, res) => {
         data.team.members.forEach(async member => {
 
             //Get a axios get request to the user
-            let response = await axios.get(req.protocol + '://' + req.get('host') + `/v1/users/${member.user.id}`);
+            const response = await axios.get(`${req.protocol}://${req.get('host')}/v2/discord/users/${member.user.id}`, {
+                headers: {
+                    "X-Api-Key": process.env.INTERNAL_API_KEY
+                }
+            });
             //If the response is 200, replace the user object with the response data
             if (response.status === 200) {
                 member.user = response.data;

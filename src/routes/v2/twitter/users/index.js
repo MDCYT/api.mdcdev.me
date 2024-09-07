@@ -29,7 +29,7 @@ const betterTwitterProfileData = async (data, req) => {
     if (data.pinnedTweet) {
         let tweet = await axios.get(req.protocol + '://' + req.get('host') + '/v2/twitter/tweets/' + data.pinnedTweet, {
             headers: {
-                "x-api-key": process.env.INTERNAL_API_KEY
+                "X-Api-Key": process.env.INTERNAL_API_KEY
             }
         }).then(res => res.data).catch(e => null);
         if (tweet) {
@@ -61,7 +61,7 @@ router.get('/:username', limit, async (req, res) => {
         })
     }
 
-    if (!data?.id) return;
+    if (!data?.id) return null;
 
     data = await betterTwitterProfileData(data, req);
 
@@ -88,9 +88,9 @@ router.get('/:username/avatar(:ext)?', limit, async (req, res) => {
         })
     }
 
-    if (!data?.id) return;
+    if (!data?.id) return null;
 
-    res.redirect(data.profileImage.replace("_normal", ""))
+    return res.redirect(data.profileImage.replace("_normal", ""))
 
 })
 
@@ -113,11 +113,11 @@ router.get('/:username/banner(:ext)?', limit, async (req, res) => {
         })
     }
 
-    if (!data?.id) return;
+    if (!data?.id) return null;
 
     if (!data.profileBanner) return statusCodeHandler({ statusCode: 15002 }, res);
 
-    res.redirect(data.profileBanner)
+    return res.redirect(data.profileBanner)
 
 })
 
@@ -139,7 +139,7 @@ router.get(/\/(.*?)(?:\/replies|\/tweets)/, limit, async (req, res) => {
         })
     }
 
-    if (!data?.id) return;
+    if (!data?.id) return null;
     if (data.statusesCount === 0) return responseHandler(req.headers.accept, res, { tweets: [] }, 'tweets')
 
     if (await tweetsCache.has(username)) return responseHandler(req.headers.accept, res, { tweets: (await tweetsCache.get(username)).list }, 'tweets');
@@ -157,7 +157,7 @@ router.get(/\/(.*?)(?:\/replies|\/tweets)/, limit, async (req, res) => {
         return statusCodeHandler({ statusCode: 15003 }, res);
     })
 
-    return;
+    return null;
 
 })
 
@@ -179,7 +179,7 @@ router.get('/:username/replies', limit, async (req, res) => {
         })
     }
 
-    if (!data?.id) return;
+    if (!data?.id) return null;
     if (data.statusesCount === 0) return responseHandler(req.headers.accept, res, { tweets: [] }, 'tweets')
 
     if (await repliesCache.has(username)) return responseHandler(req.headers.accept, res, { tweets: (await repliesCache.get(username)).list }, 'tweets');
@@ -197,7 +197,7 @@ router.get('/:username/replies', limit, async (req, res) => {
         return statusCodeHandler({ statusCode: 15003 }, res);
     })
 
-    return;
+    return null;
 
 })
 
@@ -224,7 +224,7 @@ router.get('/:username/followers', limit, async (req, res) => {
         })
     }
 
-    if (!data?.id) return;
+    if (!data?.id) return null;
 
     if (await followersCache.has(username)) return responseHandler(req.headers.accept, res, { users: (await followersCache.get(username)).list }, "users")
 
@@ -241,7 +241,7 @@ router.get('/:username/followers', limit, async (req, res) => {
         return statusCodeHandler({ statusCode: 15003 }, res);
     })
 
-    return;
+    return null;
 
 })
 
@@ -263,7 +263,7 @@ router.get('/:username/following', limit, async (req, res) => {
         })
     }
 
-    if (!data?.id) return;
+    if (!data?.id) return null;
 
     if (await followingsCache.has(username)) return responseHandler(req.headers.accept, res, { users: (await followingsCache.get(username)).list }, "users")
 
@@ -280,7 +280,7 @@ router.get('/:username/following', limit, async (req, res) => {
         return statusCodeHandler({ statusCode: 15003 }, res);
     })
 
-    return;
+    return null;
 
 })
 
@@ -290,7 +290,7 @@ router.get('/:username/media', limit, async (req, res) => {
 
     let account = await axios.get(req.protocol + '://' + req.get('host') + '/v2/twitter/users/' + username, {
         headers: {
-            "x-api-key": process.env.INTERNAL_API_KEY
+            "X-Api-Key": process.env.INTERNAL_API_KEY
         }
     }).then(res => res.data).catch(e => null);
 
@@ -306,7 +306,7 @@ router.get('/:username/media', limit, async (req, res) => {
         return statusCodeHandler({ statusCode: 15003 }, res);
     })
 
-    return;
+    return null;
 
 })
 
@@ -316,7 +316,7 @@ router.get('/:username/highlights', limit, async (req, res) => {
 
     let account = await axios.get(req.protocol + '://' + req.get('host') + '/v2/twitter/users/' + username, {
         headers: {
-            "x-api-key": process.env.INTERNAL_API_KEY
+            "X-Api-Key": process.env.INTERNAL_API_KEY
         }
     }).then(res => res.data).catch(e => null);
 
@@ -335,7 +335,7 @@ router.get('/:username/highlights', limit, async (req, res) => {
         return statusCodeHandler({ statusCode: 15003 }, res);
     })
 
-    return;
+    return null;
 
 })
 
@@ -345,7 +345,7 @@ router.get('/:username/subscriptions', limit, async (req, res) => {
 
     let account = await axios.get(req.protocol + '://' + req.get('host') + '/v2/twitter/users/' + username, {
         headers: {
-            "x-api-key": process.env.INTERNAL_API_KEY
+            "X-Api-Key": process.env.INTERNAL_API_KEY
         }
     }).then(res => res.data).catch(e => null);
 
@@ -364,7 +364,7 @@ router.get('/:username/subscriptions', limit, async (req, res) => {
         return statusCodeHandler({ statusCode: 15003 }, res);
     })
 
-    return;
+    return null;
 
 })
 
