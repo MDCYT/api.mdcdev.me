@@ -25,7 +25,7 @@ router.get("/:username", limit, async (req, res) => {
 
   if (!data) {
     // Launch broser headless
-    const browser = await firefox.launch({ headless: true });
+    const browser = await firefox.connect(process.env.BROWSER_PLAYWRIGHT_ENDPOINT);
     const context = await browser.newContext(devices["Desktop Firefox HiDPI"]);
     const page = await context.newPage();
 
