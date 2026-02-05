@@ -67,7 +67,7 @@ router.get('/:username', limit, async (req, res) => {
 
 });
 
-router.get('/:username/avatar(:ext)?', limit, async (req, res) => {
+router.get('/:username/avatar:ext?', limit, async (req, res) => {
     let { username } = req.params;
     username = username.toLowerCase()
     let data = await userCache.get(username);

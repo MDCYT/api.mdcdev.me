@@ -16,72 +16,71 @@ const limit = RateLimit(15, 50);
 
 router.get('/:id', limit, async (req, res) => {
     const { id } = req.params;
-    const http = new HTTP(process.env.DISCORD_BOT_TOKEN);
-    let data = await cache.get(id);
+    const http = new HTTP(req.headers["discord-bot-token"] || process.env.DISCORD_BOT_TOKEN);
+    let data = req.headers["discord-bot-token"] ? null : await cache.get(id);
     if (!data) {
         await http.get('USER_URL', "path", id).then(async response => {
-            //If the response is 200, add the user to the cache
             if (response.status === 200) {
-                await cache.set(id, response.data);
+                if(!req.headers["discord-bot-token"]) await cache.set(id, response.data);
                 data = response.data;
             } else {
                 return statusCodeHandler({ statusCode: response.status }, res);
             }
+
+            return null;
         }).catch((e) => {
             console.log(e)
             return statusCodeHandler({ statusCode: 11001 }, res);
         })
     }
 
-    if(!data?.id) return;
+    if(!data?.id) return null;
 
     data.raw = JSON.parse(JSON.stringify(data))
 
-    //If the user dont have a bot property, add it to the user object
     if (!data.bot) data.bot = false;
 
-    //If the user has a username and discriminator, add it to the user object
     data.tag = `${data.username}#${data.discriminator}`;
 
-    //Show the user's flags
     let flags = new UserFlags(data.public_flags);
 
-    //If system is true, add "SYSTEM" to the flags
-    if (data.system) flags.addFlag("SYSTEM");
+    const conditions = {
+        dataSystem: data.system,
+        dataBannerOrAvatar: data.banner || data.avatar?.startsWith("a_"),
+        discordPartnerOrEmployee: (flags.hasFlag("DISCORD_PARTNER") || flags.hasFlag("DISCORD_EMPLOYEE")) && !flags.hasFlag("NITRO")
+    };
 
-    //If user has a banner, or a avatar with "a_" in front of it, add "NITRO" to the flags
-    if (data.banner || data.avatar?.startsWith("a_")) flags.addFlag("NITRO");
+    const mappedFlags = {
+        dataSystem: "SYSTEM",
+        dataBannerOrAvatar: "NITRO",
+        discordPartnerOrEmployee: "NITRO"
+    };
 
-    //If the user have DISCORD_PARTNER or DISCORD_EMPLOYEE, add "NITRO" to the flags
-    if ((flags.hasFlag("DISCORD_PARTNER") || flags.hasFlag("DISCORD_EMPLOYEE")) && !flags.hasFlag("NITRO")) flags.addFlag("NITRO");
+    Object.keys(conditions).forEach(key => {
+        if (conditions[key]) {
+            flags.addFlag(mappedFlags[key]);
+        }
+    });
 
-    //Add the flags to the user object
     data.formedFlags = flags.getFlags();
 
-    //Convert hash of avatar and banner to a url
-    //If the banner or avatar starts with "a_", it's animated, so add ".gif" to the end of the url
     let avatar = data.avatar ? new Image("UserAvatar", data.id, data.avatar) : new Image("DefaultUserAvatar", (data.discriminator === "0" || !data.discriminator) ? data.id : data.discriminator, { format: "png" });
     let banner = data.banner ? new Image("UserBanner", data.id, data.banner) : null;
 
     let avatarURL = avatar.url;
     let bannerURL = banner ? banner.url : null;
 
-    //Add the avatar and banner url to the user object
     data.avatarURL = avatarURL;
     data.bannerURL = bannerURL;
 
-    //Now add a object called "avatarURLs" and bannerURLs to the user object, and add all the sizes of the avatar and banner
     if (avatarURL) data.avatarURLs = avatar.sizes;
     if (bannerURL) data.bannerURLs = banner.sizes;
 
-    //Get with the Discord Snowflake the date of when the user was created
     let date = new Date(parseInt(data.id) / 4194304 + 1420070400000);
 
-    //Add the date to the user object
     data.createdAt = date.toISOString();
     data.createdAtTimestamp = date.getTime();
 
-    //Get all avatar decorations
     if(data.avatar_decoration_data?.asset) data.avatarDecoration = data.avatar_decoration_data?.asset;
 
     let avatarDecoration = data.avatar_decoration_data?.asset ? new Image("AvatarDecoration", data.avatar_decoration_data.asset, {format: "png"}) : null;
@@ -102,7 +101,6 @@ router.get('/:id', limit, async (req, res) => {
 
     data.clanBadgeURLs = clanBadge ? clanBadge.sizes : null;
 
-    //Return the user object
     return responseHandler(req.headers.accept, res, data, "user");
 
 });
@@ -115,8 +113,8 @@ router.get(/\/(\d+)\/avatar(?:\.(\w+))?$/, limit, async (req, res) => {
     // If is not gif, webp or png, set it to png, if it's not seted, not set nothing
     if (ext && !["gif", "webp", "png"].includes(ext)) ext = "png";
 
-    const http = new HTTP(process.env.DISCORD_BOT_TOKEN);
-    let data = await cache.get(id);
+    const http = new HTTP(req.headers["discord-bot-token"] || process.env.DISCORD_BOT_TOKEN);
+    let data = req.headers["discord-bot-token"] ? null : await cache.get(id);
     if (!data) {
         await http.get('USER_URL', "path", id).then(async response => {
             //If the response is 200, add the user to the cache
@@ -148,8 +146,8 @@ router.get(/\/(\d+)\/banner(?:\.(\w+))?$/, limit, async (req, res) => {
     // If is not gif, webp or png, set it to png, if it's not seted, not set nothing
     if (ext && !["gif", "webp", "png"].includes(ext)) ext = "png";
 
-    const http = new HTTP(process.env.DISCORD_BOT_TOKEN);
-    let data = await cache.get(id);
+    const http = new HTTP(req.headers["discord-bot-token"] || process.env.DISCORD_BOT_TOKEN);
+    let data = req.headers["discord-bot-token"] ? null : await cache.get(id);
     if (!data) {
         await http.get('USER_URL', "path", id).then(async response => {
             //If the response is 200, add the user to the cache
@@ -164,7 +162,7 @@ router.get(/\/(\d+)\/banner(?:\.(\w+))?$/, limit, async (req, res) => {
         })
     }
 
-    if(!data?.id) return;
+    if(!data?.id) return null;
 
     let banner = data.banner ? new Image("UserBanner", data.id, data.banner, { format: ext }) : null;
     if(banner) return res.redirect(banner.url)
@@ -179,8 +177,8 @@ router.get(/\/(\d+)\/(?:avatar-decoration|avatardecoration|avatar-decorator|avat
 
     if (!["webp", "png"].includes(ext)) ext = "png";
 
-    const http = new HTTP(process.env.DISCORD_BOT_TOKEN);
-    let data = await cache.get(id);
+    const http = new HTTP(req.headers["discord-bot-token"] || process.env.DISCORD_BOT_TOKEN);
+    let data = req.headers["discord-bot-token"] ? null : await cache.get(id);
     if (!data) {
         await http.get('USER_URL', "path", id).then(async response => {
             //If the response is 200, add the user to the cache
@@ -190,13 +188,15 @@ router.get(/\/(\d+)\/(?:avatar-decoration|avatardecoration|avatar-decorator|avat
             } else {
                 return statusCodeHandler({ statusCode: response.status }, res);
             }
+            
+            return null;
         }).catch((e) => {
             console.log(e)
             return statusCodeHandler({ statusCode: 11001 }, res);
         })
     }
 
-    if(!data?.id) return;
+    if(!data?.id) return null;
 
     let avatarDecoration = data.avatar_decoration_data?.asset ? new Image("AvatarDecoration", data.avatar_decoration_data.asset, {format: ext}) : null;
 
@@ -210,8 +210,8 @@ router.get(/\/(\d+)\/(?:clan-badge|clanbadge)(?:\.(\w+))?$/, limit, async (req, 
 
     if (!["webp", "png", "gif"].includes(ext)) ext = "png";
 
-    const http = new HTTP(process.env.DISCORD_BOT_TOKEN);
-    let data = await cache.get(id);
+    const http = new HTTP(req.headers["discord-bot-token"] || process.env.DISCORD_BOT_TOKEN);
+    let data = req.headers["discord-bot-token"] ? null : await cache.get(id);
     if (!data) {
         await http.get('USER_URL', "path", id).then(async response => {
             //If the response is 200, add the user to the cache
@@ -227,7 +227,7 @@ router.get(/\/(\d+)\/(?:clan-badge|clanbadge)(?:\.(\w+))?$/, limit, async (req, 
         })
     }
 
-    if(!data?.id) return;
+    if(!data?.id) return null;
 
     let clanBadge = data.clan ? new Image("ClanBadge", data.clan.identity_guild_id, data.clan.badge, {format: ext}) : null;
 

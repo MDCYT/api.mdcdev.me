@@ -33,7 +33,9 @@ function objectToCamelCase(obj) {
     // CamelCase the object keys, not the values
     let newObj = {};
     for (let key in obj) {
-        newObj[key.replace(/_([a-z])/g, (g) => g[1].toUpperCase())] = obj[key];
+        if (Object.prototype.hasOwnProperty.call(obj, key)) {
+            newObj[key.replace(/_([a-z])/g, (g) => g[1].toUpperCase())] = obj[key];
+        }
     }
     return newObj;
 }
@@ -61,7 +63,7 @@ function jsonToXml(json) {
 function responseHandler(acceptHeader, res, data, objectname) {
     // Check the accept header and send the response in the correct format
     // Sometime the accept header is like */*,application/json, get the first one
-    var rest;
+    let rest;
     if (acceptHeader?.includes(',')) {
         rest = acceptHeader.replace(/[^,]+,/, '');
         acceptHeader = acceptHeader.split(',')[0];

@@ -60,7 +60,7 @@ router.get('/:id/banner', limit, async (req, res) => {
         })
     }
 
-    if(!data?.id) return;
+    if(!data?.id) return null;
 
     let banner = data.banner ? new Image("UserBanner", data.id, data.banner) : null;
 

@@ -41,22 +41,38 @@ app.use((req, res, next) => {
     next();
 });
 
+// Rutas deshabilitadas
+const DISABLED_ROUTES = process.env.DISABLED_ROUTES 
+    ? process.env.DISABLED_ROUTES.split(',').map(r => r.trim())
+    : [];
+
 //We have a folder called "routes", and inside that folder we have a folders called "v1", "v2", "v3" and more, inside those folders we have a folder called "users", "guilds" and more, inside those folders we have a file called "@me.js", "index.js" and more
 //This is how we require all the files in the "routes" folder
 //The route is the path to the file, and the file is the file that we require
 function requireRoutes(path, fullpath = "") {
     fs.readdirSync(join(__dirname, path)).forEach(file => {
         if (file.endsWith(".js")) {
+            let routePath = "";
             if (file === "index.js") {
-                app.use(`${fullpath.replace("~", ":")}`, require(join(__dirname, path, file)));
-                console.log(`Loaded route: ${fullpath.replace("~", ":")}`);
+                routePath = `${fullpath.replace("~", ":")}`;
             } else {
-                app.use(`${fullpath.replace(".js", ).replace("~", ":")}/${file.replace(".js", "")}`, require(join(__dirname, path, file)));
-                console.log(`Loaded route: ${fullpath.replace(".js", ).replace("~", ":")}/${file.replace(".js", "")}`);
+                routePath = `${fullpath.replace(".js", ).replace("~", ":")}/${file.replace(".js", "")}`;
             }
-            // app.use(`${fullpath}/${file.replace(".js", "")}`, require(join(__dirname, path, file)));
-            // console.log(`Loaded route: ${fullpath}/${file.replace(".js", "")}`);
-            //If the file is called index.js, we don't want to add the file name to the route
+            
+            // Verificar si la ruta está deshabilitada
+            const isDisabled = DISABLED_ROUTES.some(disabled => routePath.includes(disabled));
+            
+            if (isDisabled) {
+                console.log(`⛔ Ruta deshabilitada (saltada): ${routePath}`);
+            } else {
+                if (file === "index.js") {
+                    app.use(`${fullpath.replace("~", ":")}`, require(join(__dirname, path, file)));
+                    console.log(`✅ Ruta cargada: ${fullpath.replace("~", ":")}`);
+                } else {
+                    app.use(`${fullpath.replace(".js", ).replace("~", ":")}/${file.replace(".js", "")}`, require(join(__dirname, path, file)));
+                    console.log(`✅ Ruta cargada: ${fullpath.replace(".js", ).replace("~", ":")}/${file.replace(".js", "")}`);
+                }
+            }
         } else {
             requireRoutes(join(path, file), `${fullpath}/${file}`);
         }

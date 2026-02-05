@@ -10,6 +10,6 @@ module.exports = {
         return `${this.BASE_URL}/invites/${code}?with_counts=true&with_expiration=true` + (scheduledEventID ? `&guild_scheduled_event_id=${scheduledEventID}` : '');
     },
     APPLICATION_URL(id) {
-        return `${this.BASE_URL}/applications/${id}/rpc`;
+        return (id === '@me') ? `${this.BASE_URL}/applications/${id}` : `${this.BASE_URL}/applications/${id}/rpc`;
     }
 };
