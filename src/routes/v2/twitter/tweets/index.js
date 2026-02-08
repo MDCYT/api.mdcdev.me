@@ -18,6 +18,15 @@ const limit = RateLimit(15, 50);
 
 router.get('/:id', limit, async (req, res) => {
     const { id } = req.params;
+    
+    // Get max_quoted_depth from query params (default: 3, max: 16)
+    let maxQuotedDepth = parseInt(req.query.max_quoted_depth) || 3;
+    if (maxQuotedDepth > 16) maxQuotedDepth = 16;
+    if (maxQuotedDepth < 0) maxQuotedDepth = 0;
+    
+    // Get current depth from query params (used for recursion)
+    const currentDepth = parseInt(req.query._depth) || 0;
+    
     let data = await tweetsCache.get(id);
     if (!data) {
         await rettiwt.tweet.details(id).then(async details => {
@@ -40,16 +49,22 @@ router.get('/:id', limit, async (req, res) => {
     // CreatedAtTimesctamp
     data.createdAtTimestamp = new Date(data.createdAt).getTime();
 
-    // Get the pinned tweet in route "/v2/twitter/tweet/:id" and rename quoted to quotedID
-    if (data.quoted) {
-        //Get a axios get request to the user
-        const response = await axios.get(`${req.protocol}://${req.get('host')}/v2/twitter/tweets/${data.quoted}`);
+    // Get the quoted tweet if it exists and we haven't reached the max depth
+    if (data.quoted && currentDepth < maxQuotedDepth) {
+        //Get a axios get request to the quoted tweet
+        const response = await axios.get(`${req.protocol}://${req.get('host')}/v2/twitter/tweets/${data.quoted.id}?max_quoted_depth=${maxQuotedDepth}&_depth=${currentDepth + 1}`);
         //If the response is 200, replace the user object with the response data
         if (response.status === 200) {
             data.quotedID = data.quoted;
             data.quoted = response.data;
         }
-    } else delete data.quoted;
+    } else if (data.quoted) {
+        // If we reached the max depth, just keep the quoted ID
+        data.quotedID = data.quoted;
+        delete data.quoted;
+    } else {
+        delete data.quoted;
+    }
 
     //Return the user object
     return responseHandler(req.headers.accept, res, data, "tweet");
