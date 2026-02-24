@@ -124,7 +124,6 @@ router.get('/:id', limit, async (req, res) => {
     data.max_members = data.max_members || 1;
     data.max_presences = data.max_presences || data.max_members || 1;
     data.max_video_channel_users = data.max_video_channel_users || 1;
-    data.max_video_channel_users = data.max_video_channel_users || 1;
     data.mfa_level = data.mfa_level || 0;
     data.nsfw_level = data.nsfw_level || 0;
     data.premium_progress_bar_enabled = data.premium_progress_bar_enabled || false;
