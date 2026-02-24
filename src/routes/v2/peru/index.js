@@ -7,6 +7,7 @@ router.get('/', (req, res) => {
     modules: {
       '/bomberos': 'APIs relacionadas con bomberos del Perú',
       '/indeci': 'APIs relacionadas con emergencias de INDECI',
+      '/cameras': 'Lista de cámaras y streams proxy',
     },
   });
 });

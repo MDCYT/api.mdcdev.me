@@ -54,6 +54,53 @@ async function getIncidentes() {
 }
 
 /**
+ * Obtiene incidentes con coordenadas faltantes o invalidas
+ */
+async function getIncidentesMissingGeo(limit = 50) {
+  const connection = await pool.getConnection();
+  try {
+    const [rows] = await connection.query(
+      `
+        SELECT id, location, district, latitude, longitude
+        FROM bomberos_incidentes
+        WHERE latitude IS NULL
+          OR longitude IS NULL
+          OR (latitude = 0 AND longitude = 0)
+          OR location REGEXP '\\([^)]*\\)'
+        ORDER BY occurred_at DESC
+        LIMIT ?
+      `,
+      [limit]
+    );
+    return rows;
+  } finally {
+    connection.release();
+  }
+}
+
+/**
+ * Actualiza coordenadas y ubicacion de un incidente
+ */
+async function updateIncidenteGeo(id, latitude, longitude, location) {
+  const connection = await pool.getConnection();
+  try {
+    await connection.query(
+      `
+        UPDATE bomberos_incidentes
+        SET location = COALESCE(NULLIF(?, ''), location),
+            latitude = COALESCE(?, latitude),
+            longitude = COALESCE(?, longitude)
+        WHERE id = ?
+      `,
+      [location, latitude, longitude, id]
+    );
+    return true;
+  } finally {
+    connection.release();
+  }
+}
+
+/**
  * Obtiene un incidente por ID
  */
 async function getIncidenteById(id) {
@@ -210,6 +257,7 @@ module.exports = {
   pool,
   convertToMySQLDatetime,
   getIncidentes,
+  getIncidentesMissingGeo,
   getIncidenteById,
   upsertIncidente,
   batchUpsertIncidentes,
@@ -217,4 +265,5 @@ module.exports = {
   getIncidentesByDaysRange,
   getIncidentesByDistrito,
   getLastUpdateStatus,
+  updateIncidenteGeo,
 };
