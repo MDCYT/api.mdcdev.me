@@ -2,14 +2,17 @@ const { Router } = require('express');
 const router = Router();
 const { 
   getIncidentes, 
+  getIncidentesMissingGeo,
   getIncidentesByHoursRange,
   getIncidentesByDaysRange,
   getIncidentesByDistrito,
   getLastUpdateStatus,
-  batchUpsertIncidentes 
+  batchUpsertIncidentes,
+  updateIncidenteGeo
 } = require(require('path').join(global.__basedir, 'utils', 'bomberos-db'));
 const { parseBomberos24HorasReal } = require(require('path').join(global.__basedir, 'utils', 'bomberos-scraper'));
 const { startPeriodicProxyUpdate, getProxyStatus } = require(require('path').join(global.__basedir, 'utils', 'proxy-manager'));
+const { isValidCoord, normalizeLocation, geocodeApprox } = require(require('path').join(global.__basedir, 'utils', 'geocode'));
 
 // Variables globales para el estado
 let isUpdating = false;
@@ -20,6 +23,63 @@ let lastSuccessfulUpdate = null;
 const DEFAULT_RANGE_HOURS = parseInt(process.env.BOMBEROS_DEFAULT_RANGE_HOURS) || 24;
 const MAX_RANGE_DAYS = parseInt(process.env.BOMBEROS_MAX_RANGE_DAYS) || 30;
 const UPDATE_INTERVAL = parseInt(process.env.BOMBEROS_UPDATE_INTERVAL) || 1800000; // 30 minutos
+const GEOCODE_BACKFILL_LIMIT = parseInt(process.env.BOMBEROS_GEOCODE_BACKFILL_LIMIT) || 25;
+const GEOCODE_BACKFILL_INTERVAL = parseInt(process.env.BOMBEROS_GEOCODE_BACKFILL_INTERVAL) || 600000; // 10 minutos
+
+async function backfillMissingGeo() {
+  const pendientes = await getIncidentesMissingGeo(GEOCODE_BACKFILL_LIMIT);
+  if (!pendientes.length) return;
+
+  let updated = 0;
+  let geocoded = 0;
+
+  for (const incidente of pendientes) {
+    const cleanedLocation = normalizeLocation(incidente.location);
+    let latitude = null;
+    let longitude = null;
+
+    if (isValidCoord(incidente.latitude, incidente.longitude)) {
+      await updateIncidenteGeo(incidente.id, null, null, cleanedLocation);
+      updated += 1;
+      continue;
+    }
+
+    try {
+      const geo = await geocodeApprox({
+        location: cleanedLocation,
+        district: incidente.district,
+        country: 'Peru',
+      });
+
+      if (geo && isValidCoord(geo.latitude, geo.longitude)) {
+        latitude = geo.latitude;
+        longitude = geo.longitude;
+        geocoded += 1;
+      }
+    } catch (error) {
+      console.warn('Geocoding backfill fallido:', error.message);
+    }
+
+    await updateIncidenteGeo(incidente.id, latitude, longitude, cleanedLocation);
+    updated += 1;
+  }
+
+  console.log(`🧭 Geocoding backfill: ${updated} revisados, ${geocoded} geocodificados.`);
+}
+
+function startPeriodicBackfill() {
+  backfillMissingGeo().catch(error => {
+    console.warn('Geocoding backfill inicial fallido:', error.message);
+  });
+
+  setInterval(() => {
+    if (!isUpdating) {
+      backfillMissingGeo().catch(error => {
+        console.warn('Geocoding backfill fallido:', error.message);
+      });
+    }
+  }, GEOCODE_BACKFILL_INTERVAL);
+}
 
 /**
  * Realiza la actualización de datos desde la API de Bomberos
@@ -43,6 +103,8 @@ async function updateBomberosData() {
     if (emergencias && emergencias.length > 0) {
       console.log(`💾 Guardando ${emergencias.length} incidentes en la BD...`);
       await batchUpsertIncidentes(emergencias);
+
+      await backfillMissingGeo();
       
       lastSuccessfulUpdate = new Date();
       console.log(`✅ Actualización completada exitosamente. ${emergencias.length} incidentes guardados.`);
@@ -77,6 +139,7 @@ if (!global.bomberosUpdateStarted) {
   console.log('🚀 Iniciando sistemas de Bomberos...');
   startPeriodicProxyUpdate();
   startPeriodicUpdate();
+  startPeriodicBackfill();
   global.bomberosUpdateStarted = true;
 }
 
@@ -158,11 +221,16 @@ router.get('/distrito/:distrito', async (req, res) => {
     const incidentes = await getIncidentesByDistrito(distrito);
     const status = await getLastUpdateStatus();
     
+    const normalizedIncidentes = incidentes.map(incidente => ({
+      ...incidente,
+      location: normalizeLocation(incidente.location),
+    }));
+
     const response = {
       success: true,
-      count: incidentes.length,
+      count: normalizedIncidentes.length,
       distrito,
-      data: incidentes,
+      data: normalizedIncidentes,
       source: 'database',
       lastUpdate: {
         timestamp: status.last_update,

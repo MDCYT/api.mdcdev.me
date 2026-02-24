@@ -1,6 +1,7 @@
 const fetch = require('node-fetch');
 const { load } = require('cheerio');
 const { getRandomProxy, getCachedProxies } = require('./proxy-manager');
+const { isValidCoord, normalizeLocation, geocodeApprox } = require('./geocode');
 
 /**
  * Extrae coordenadas del formato "(-12.0828,-77.0513)"
@@ -153,12 +154,13 @@ async function parseBomberos24HorasReal() {
             if (numparte && ubicacionRaw && tipo) {
               const { latitud, longitud } = extractCoordinates(ubicacionRaw);
               const distrito = extractDistrito(ubicacionRaw);
+              const ubicacionLimpia = normalizeLocation(ubicacionRaw);
 
               emergencias.push({
                 id: numparte,
                 numparte,
                 tipo,
-                ubicacion: ubicacionRaw,
+                ubicacion: ubicacionLimpia,
                 distrito,
                 hora: horaISO || undefined,
                 latitud,
@@ -176,6 +178,25 @@ async function parseBomberos24HorasReal() {
       });
 
       console.log(`✨ Total de emergencias parseadas: ${emergencias.length}`);
+
+      for (const emergencia of emergencias) {
+        if (!isValidCoord(emergencia.latitud, emergencia.longitud)) {
+          try {
+            const geo = await geocodeApprox({
+              location: emergencia.ubicacion,
+              district: emergencia.distrito,
+              country: 'Peru',
+            });
+
+            if (geo) {
+              emergencia.latitud = geo.latitude;
+              emergencia.longitud = geo.longitude;
+            }
+          } catch (geocodeError) {
+            console.warn('Geocoding fallido:', geocodeError.message);
+          }
+        }
+      }
       
       if (emergencias.length > 0) {
         return emergencias;
