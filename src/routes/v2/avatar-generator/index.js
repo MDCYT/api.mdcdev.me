@@ -9,6 +9,27 @@ const { GlobalFonts, createCanvas } = require('@napi-rs/canvas');
 
 const fs = require('node:fs');
 
+router.get('/', (req, res) => {
+    res.json({
+        message: 'API de Avatar Generator',
+        description: 'Genera avatares simples a partir de texto.',
+        endpoints: {
+            'GET /:text': 'Genera un avatar PNG con el texto indicado',
+        },
+        examples: {
+            'Avatar basico': '/MDC',
+            'Con parametros': '/MDC?size=256&fontsize=96&fontcolor=ffffff&backgroundcolor=000000',
+        },
+        params: {
+            size: 'Tamano del canvas (default: 120, max: 1024)',
+            fontsize: 'Tamano de fuente (default: 48, max: 512)',
+            fontcolor: 'Color hex sin # (default: 000000)',
+            backgroundcolor: 'Color hex sin # (default: aleatorio)',
+            font: 'Fuente registrada (default: roboto)',
+        },
+    });
+});
+
 fs.readdirSync(join(__basedir, 'fonts')).forEach(async file => {
     if (file.endsWith(".ttf")) {
         GlobalFonts.registerFromPath(join(__basedir, 'fonts', file), file.replace(".ttf", ""))
