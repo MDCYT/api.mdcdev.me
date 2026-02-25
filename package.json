@@ -7,7 +7,10 @@
     "dev": "nodemon src/app.js",
     "start": "node src/app.js",
     "test:bomberos": "node test-bomberos-setup.js",
-    "examples:bomberos": "node examples/bomberos-examples.js"
+    "examples:bomberos": "node examples/bomberos-examples.js",
+    "update:crime": "node update-crime-data.js",
+    "update:earthquakes": "node fill-earthquake-data.js",
+    "examples:crime": "node examples/inei-crime-examples.js"
   },
   "repository": {
     "type": "git",

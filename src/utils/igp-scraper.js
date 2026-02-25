@@ -1,6 +1,6 @@
 const fetch = require('node-fetch');
 
-const IGP_API_BASE = 'https://ultimosismo.igp.gob.pe/api/ultimo-sismo';
+const IGP_API_BASE = process.env.IGP_API_URL || 'https://ultimosismo.igp.gob.pe/api/ultimo-sismo';
 
 /**
  * Obtiene los últimos sismos del API del IGP

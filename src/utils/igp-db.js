@@ -331,6 +331,175 @@ async function getSignificantEarthquakes(magnitudeThreshold = 4.0) {
   }
 }
 
+/**
+ * Obtiene estadísticas de campos faltantes en sismos
+ * @returns {Promise<Object>} Estadísticas de campos
+ */
+async function getEarthquakeDataStats() {
+  const connection = await pool.getConnection();
+  try {
+    const query = `
+      SELECT 
+        COUNT(*) as total_earthquakes,
+        SUM(CASE WHEN seismic_map_url IS NULL THEN 1 ELSE 0 END) as missing_seismic_map,
+        SUM(CASE WHEN theoretical_acceleration_map_url IS NULL THEN 1 ELSE 0 END) as missing_theoretical_acceleration,
+        SUM(CASE WHEN intensity_map_url IS NULL THEN 1 ELSE 0 END) as missing_intensity_map,
+        SUM(CASE WHEN pseudo_acceleration_map_url IS NULL THEN 1 ELSE 0 END) as missing_pseudo_acceleration,
+        SUM(CASE WHEN max_acceleration_map_url IS NULL THEN 1 ELSE 0 END) as missing_max_acceleration,
+        SUM(CASE WHEN max_velocity_map_url IS NULL THEN 1 ELSE 0 END) as missing_max_velocity,
+        SUM(CASE WHEN accelerometric_report_pdf IS NULL THEN 1 ELSE 0 END) as missing_accelerometric_report,
+        SUM(CASE WHEN code IS NULL AND codes IS NULL THEN 1 ELSE 0 END) as missing_code
+      FROM earthquakes
+    `;
+    const [rows] = await connection.query(query);
+    return rows[0] || {};
+  } finally {
+    connection.release();
+  }
+}
+
+/**
+ * Obtiene sismos que les faltan datos extras (mapas y reportes)
+ * @param {number} limit - Límite de sismos a obtener
+ * @returns {Promise<Array>} Sismos sin datos extras
+ */
+async function getEarthquakesWithoutExtraData(limit = 100) {
+  const connection = await pool.getConnection();
+  try {
+    const query = `
+      SELECT * FROM earthquakes 
+      WHERE (seismic_map_url IS NULL 
+        OR theoretical_acceleration_map_url IS NULL 
+        OR intensity_map_url IS NULL
+        OR pseudo_acceleration_map_url IS NULL
+        OR max_acceleration_map_url IS NULL
+        OR max_velocity_map_url IS NULL)
+      AND (code IS NOT NULL OR codes IS NOT NULL)
+      ORDER BY datetime_utc DESC 
+      LIMIT ?
+    `;
+    const [rows] = await connection.query(query, [limit]);
+    return rows;
+  } finally {
+    connection.release();
+  }
+}
+
+/**
+ * Actualiza solo los datos extras de un sismo (mapas y reportes)
+ * @param {string} code - Código del sismo
+ * @param {Object} extraData - Datos extras a actualizar
+ * @returns {Promise<boolean>} True si se actualizó correctamente
+ */
+async function updateEarthquakeExtraData(code, extraData) {
+  if (!code || !extraData) return false;
+
+  const connection = await pool.getConnection();
+  try {
+    const query = `
+      UPDATE earthquakes 
+      SET 
+        seismic_map_url = COALESCE(?, seismic_map_url),
+        theoretical_acceleration_map_url = COALESCE(?, theoretical_acceleration_map_url),
+        intensity_map_url = COALESCE(?, intensity_map_url),
+        pseudo_acceleration_map_url = COALESCE(?, pseudo_acceleration_map_url),
+        max_acceleration_map_url = COALESCE(?, max_acceleration_map_url),
+        max_velocity_map_url = COALESCE(?, max_velocity_map_url),
+        accelerometric_report_pdf = COALESCE(?, accelerometric_report_pdf),
+        accelerometric_map_url = COALESCE(?, accelerometric_map_url),
+        updated_at = NOW()
+      WHERE code = ?
+    `;
+
+    const values = [
+      extraData.mapa_sismico_url || null,
+      extraData.mapa_aceleracion_teorica_url || null,
+      extraData.mapa_intensidades_url || null,
+      extraData.mapa_pseudo_aceleracion_url || null,
+      extraData.mapa_aceleracion_maxima_url || null,
+      extraData.mapa_velocidades_maxima_url || null,
+      extraData.reporte_acelerometrico_pdf || null,
+      extraData.mapa_aceleracion_teorica_url || null,
+      code,
+    ];
+
+    const [result] = await connection.query(query, values);
+    return result.affectedRows > 0;
+  } catch (error) {
+    console.error(`Error actualizando datos extras para ${code}:`, error.message);
+    return false;
+  } finally {
+    connection.release();
+  }
+}
+
+/**
+ * Rellena los datos faltantes de sismos obteniendo la información desde la API del IGP
+ * @param {number} limit - Límite de sismos a procesar
+ * @param {number} delayMs - Delay entre peticiones en milisegundos
+ * @returns {Promise<Object>} Resultado del proceso
+ */
+async function fillMissingEarthquakeData(limit = 100, delayMs = 1000) {
+  const { fetchEarthquakeDetails } = require('./igp-scraper');
+  
+  try {
+    console.log(`Buscando sismos sin datos extras (límite: ${limit})...`);
+    const earthquakes = await getEarthquakesWithoutExtraData(limit);
+
+    if (earthquakes.length === 0) {
+      console.log('No hay sismos sin datos extras');
+      return { total: 0, updated: 0, failed: 0 };
+    }
+
+    console.log(`Encontrados ${earthquakes.length} sismos sin datos completos`);
+
+    let updated = 0;
+    let failed = 0;
+
+    for (const earthquake of earthquakes) {
+      try {
+        // Usar el campo 'code' o 'codes' el que esté disponible
+        const codeToFetch = earthquake.code || earthquake.codes;
+        
+        if (!codeToFetch) {
+          console.warn(`Sismo sin código válido, saltando...`);
+          failed++;
+          continue;
+        }
+
+        console.log(`Obteniendo datos extras para ${codeToFetch}...`);
+        const details = await fetchEarthquakeDetails(codeToFetch);
+
+        if (details) {
+          const success = await updateEarthquakeExtraData(earthquake.code, details);
+          if (success) {
+            updated++;
+            console.log(`✓ Actualizado ${codeToFetch}`);
+          } else {
+            failed++;
+            console.warn(`✗ No se pudo actualizar ${codeToFetch}`);
+          }
+        } else {
+          failed++;
+          console.warn(`✗ No se obtuvieron detalles para ${codeToFetch}`);
+        }
+
+        // Delay para no sobrecargar la API
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+      } catch (error) {
+        failed++;
+        console.error(`Error procesando sismo ${earthquake.code}:`, error.message);
+      }
+    }
+
+    console.log(`\nResultado: ${updated} actualizados, ${failed} fallidos de ${earthquakes.length} total`);
+    return { total: earthquakes.length, updated, failed };
+  } catch (error) {
+    console.error('Error en fillMissingEarthquakeData:', error.message);
+    throw error;
+  }
+}
+
 module.exports = {
   batchUpsertEarthquakes,
   getEarthquakesByHoursRange,
@@ -341,6 +510,10 @@ module.exports = {
   getEarthquakesByReference,
   getEarthquakeLastUpdateStatus,
   getSignificantEarthquakes,
+  getEarthquakeDataStats,
+  getEarthquakesWithoutExtraData,
+  updateEarthquakeExtraData,
+  fillMissingEarthquakeData,
   convertToMySQLDatetime,
   mapIGPToDatabase,
 };
