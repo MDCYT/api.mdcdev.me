@@ -134,6 +134,7 @@ router.get('/types', async (req, res) => {
  * 
  * Parámetros opcionales:
  * - limit: Máximo de registros (default: 5000, máximo: 20000)
+ * - offset: Paginación (default: 0)
  * - crime_type: Filtrar por tipo de delito
  * - dept_code: Filtrar por departamento
  * - min_lat, max_lat, min_lon, max_lon: Rango de coordenadas
@@ -142,6 +143,7 @@ router.get('/heatmap', async (req, res) => {
   try {
     const { 
       limit = 5000,
+      offset = 0,
       crime_type, 
       dept_code,
       min_lat,
@@ -152,10 +154,11 @@ router.get('/heatmap', async (req, res) => {
 
     // Validar límite (máximo 20000)
     const parsedLimit = Math.min(Math.max(parseInt(limit) || 5000, 1), 20000);
+    const parsedOffset = Math.max(parseInt(offset) || 0, 0);
 
     const filters = {
       limit: parsedLimit,
-      offset: 0,
+      offset: parsedOffset,
     };
 
     if (crime_type) filters.crimeType = crime_type;
@@ -170,6 +173,7 @@ router.get('/heatmap', async (req, res) => {
     }
 
     const points = await getCrimePoints(filters);
+    const total = await countCrimePoints(filters);
 
     // Simplificar datos para heatmap (solo coordenadas y tipo)
     const heatmapData = points.map((p) => ({
@@ -182,8 +186,12 @@ router.get('/heatmap', async (req, res) => {
     res.json({
       success: true,
       data: heatmapData,
-      total: heatmapData.length,
-      limit: parsedLimit,
+      pagination: {
+        total,
+        limit: parsedLimit,
+        offset: parsedOffset,
+        returned: heatmapData.length,
+      },
       filters: {
         crime_type: crime_type || null,
         dept_code: dept_code || null,
