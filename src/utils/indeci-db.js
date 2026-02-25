@@ -158,7 +158,6 @@ async function batchUpsertIndeci(incidentes) {
           district = VALUES(district),
           province = VALUES(province),
           region = VALUES(region),
-          occurred_at = VALUES(occurred_at),
           latitude = VALUES(latitude),
           longitude = VALUES(longitude),
           affected_people = CASE
