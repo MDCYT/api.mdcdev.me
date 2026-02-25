@@ -40,33 +40,48 @@ function convertToMySQLDatetime(isoDate) {
 async function deduplicateIndeciRecords() {
   const connection = await pool.getConnection();
   try {
-    // Encontrar registros duplicados y eliminar los más nuevos, guardando los más viejos
-    const deleteQuery = `
-      DELETE FROM indeci_incidentes 
-      WHERE id IN (
-        SELECT id FROM (
-          SELECT id 
-          FROM indeci_incidentes 
-          WHERE id IN (
-            SELECT sinpad_code 
-            FROM indeci_incidentes 
-            GROUP BY sinpad_code 
-            HAVING COUNT(*) > 1
-          )
-          AND id NOT IN (
-            SELECT MIN(id) 
-            FROM indeci_incidentes 
-            GROUP BY sinpad_code 
-            HAVING COUNT(*) > 1
-          )
-        ) AS temp
-      )
-    `;
+    // Primero, obtener todos los registros para analizar 'raw' y extraer IDE_SINPAD
+    const [rows] = await connection.query('SELECT id, raw FROM indeci_incidentes WHERE raw IS NOT NULL');
     
-    const result = await connection.query(deleteQuery);
-    const deletedCount = result[0]?.affectedRows || 0;
-    console.log(`INDECI: eliminados ${deletedCount} registros duplicados`);
-    return deletedCount;
+    const ideMap = {}; // IDE_SINPAD -> array de ids
+    
+    // Agrupar por IDE_SINPAD extraído del raw
+    for (const row of rows) {
+      try {
+        const raw = typeof row.raw === 'string' ? JSON.parse(row.raw) : row.raw;
+        const ideSinpad = raw?.attributes?.IDE_SINPAD;
+        
+        if (ideSinpad) {
+          if (!ideMap[ideSinpad]) {
+            ideMap[ideSinpad] = [];
+          }
+          ideMap[ideSinpad].push(row.id);
+        }
+      } catch (e) {
+        // Saltar si hay error parseando raw
+      }
+    }
+    
+    // Eliminar duplicados: mantener el ID más antiguo, eliminar el resto
+    let totalDeleted = 0;
+    
+    for (const ideSinpad in ideMap) {
+      const ids = ideMap[ideSinpad];
+      
+      if (ids.length > 1) {
+        // Ordenar para obtener el primer ID (más antiguo por default de MySQL)
+        // Eliminar todos excepto el primero
+        const idsToDelete = ids.slice(1);
+        
+        for (const idToDelete of idsToDelete) {
+          await connection.query('DELETE FROM indeci_incidentes WHERE id = ?', [idToDelete]);
+          totalDeleted++;
+        }
+      }
+    }
+    
+    console.log(`INDECI: eliminados ${totalDeleted} registros duplicados (agrupados por IDE_SINPAD)`);
+    return totalDeleted;
   } finally {
     connection.release();
   }
@@ -75,13 +90,28 @@ async function deduplicateIndeciRecords() {
 async function countIndeciDuplicates() {
   const connection = await pool.getConnection();
   try {
-    const [rows] = await connection.query(`
-      SELECT sinpad_code, COUNT(*) as count 
-      FROM indeci_incidentes 
-      GROUP BY sinpad_code 
-      HAVING count > 1
-    `);
-    return rows;
+    const [rows] = await connection.query('SELECT id, raw FROM indeci_incidentes WHERE raw IS NOT NULL');
+    
+    const ideMap = {}; // IDE_SINPAD -> count
+    
+    // Agrupar por IDE_SINPAD extraído del raw
+    for (const row of rows) {
+      try {
+        const raw = typeof row.raw === 'string' ? JSON.parse(row.raw) : row.raw;
+        const ideSinpad = raw?.attributes?.IDE_SINPAD;
+        
+        if (ideSinpad) {
+          ideMap[ideSinpad] = (ideMap[ideSinpad] || 0) + 1;
+        }
+      } catch (e) {
+        // Saltar si hay error parseando raw
+      }
+    }
+    
+    // Retornar solo los que tienen duplicados
+    return Object.entries(ideMap)
+      .filter(([_, count]) => count > 1)
+      .map(([ideSinpad, count]) => ({ ide_sinpad: ideSinpad, count }));
   } finally {
     connection.release();
   }
