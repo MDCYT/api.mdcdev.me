@@ -472,41 +472,7 @@ function getProxyUrl(req, id) {
   return `${baseUrl}/v2/peru/cameras/${id}.m3u8`;
 }
 
-function encodeUrl(rawUrl) {
-  return Buffer.from(rawUrl, 'utf8').toString('base64url');
-}
 
-function decodeUrl(token) {
-  return Buffer.from(token, 'base64url').toString('utf8');
-}
-
-function getProxySegmentUrl(req, id, rawUrl) {
-  const baseUrl = getBaseUrl(req);
-  const token = encodeUrl(rawUrl);
-  return `${baseUrl}/v2/peru/cameras/${id}/segment/${token}`;
-}
-
-function rewritePlaylist(body, baseUrl, req, id) {
-  const lines = body.split(/\r?\n/);
-  return lines
-    .map((line) => {
-      if (!line || line.startsWith('#') === false) {
-        if (!line) return line;
-        const resolved = new URL(line, baseUrl).toString();
-        return getProxySegmentUrl(req, id, resolved);
-      }
-
-      if (line.includes('URI="')) {
-        return line.replace(/URI="([^"]+)"/g, (_match, uri) => {
-          const resolved = new URL(uri, baseUrl).toString();
-          return `URI="${getProxySegmentUrl(req, id, resolved)}"`;
-        });
-      }
-
-      return line;
-    })
-    .join('\n');
-}
 
 async function isStreamActive(url) {
   try {
@@ -529,6 +495,12 @@ async function isStreamActive(url) {
 
 async function updateCameraStatuses() {
   for (const camera of cameras) {
+    // No verificar cámaras de SkylineWebcams
+    if (camera.specialCamera?.provider === 'SkylineWebcams') {
+      camera.estado = 'Operativo';
+      continue;
+    }
+    
     const active = await isStreamActive(camera.urlStream);
     camera.estado = active ? 'Operativo' : 'En Mantenimiento';
   }
@@ -563,7 +535,7 @@ router.get('/', (req, res) => {
   });
 });
 
-router.get('/:id.m3u8', async (req, res) => {
+router.get('/:id.m3u8', (req, res) => {
   const camera = cameras.find((item) => item.id === req.params.id);
   if (!camera) {
     return res.status(404).json({
@@ -572,71 +544,7 @@ router.get('/:id.m3u8', async (req, res) => {
     });
   }
 
-  try {
-    const response = await fetch(camera.urlStream, {
-      headers: {
-        'User-Agent': 'MDCDEV-camera-proxy/1.0',
-      },
-      timeout: 20000,
-    });
-
-    if (!response.ok) {
-      return res.status(503).json({
-        success: false,
-        error: 'Stream no disponible',
-      });
-    }
-
-    res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
-    res.setHeader('Cache-Control', 'no-store');
-
-    const body = await response.text();
-    const rewritten = rewritePlaylist(body, camera.urlStream, req, camera.id);
-    res.send(rewritten);
-  } catch (error) {
-    res.status(503).json({
-      success: false,
-      error: 'Error al obtener el stream',
-    });
-  }
-});
-
-router.get('/:id/segment/:token', async (req, res) => {
-  const camera = cameras.find((item) => item.id === req.params.id);
-  if (!camera) {
-    return res.status(404).json({
-      success: false,
-      error: 'Camara no encontrada',
-    });
-  }
-
-  try {
-    const rawUrl = decodeUrl(req.params.token);
-    const response = await fetch(rawUrl, {
-      headers: {
-        'User-Agent': 'MDCDEV-camera-proxy/1.0',
-      },
-      timeout: 20000,
-    });
-
-    if (!response.ok) {
-      return res.status(503).json({
-        success: false,
-        error: 'Segmento no disponible',
-      });
-    }
-
-    const contentType = response.headers.get('content-type') || 'application/octet-stream';
-    res.setHeader('Content-Type', contentType);
-    res.setHeader('Cache-Control', 'no-store');
-
-    response.body.pipe(res);
-  } catch (error) {
-    res.status(503).json({
-      success: false,
-      error: 'Error al obtener el segmento',
-    });
-  }
+  res.redirect(camera.urlStream);
 });
 
 module.exports = router;
