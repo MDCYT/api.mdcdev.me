@@ -137,6 +137,8 @@ router.get('/types', async (req, res) => {
  * - offset: Paginación (default: 0)
  * - crime_type: Filtrar por tipo de delito
  * - dept_code: Filtrar por departamento
+ * - prov_code: Filtrar por provincia
+ * - dist_code: Filtrar por distrito
  * - min_lat, max_lat, min_lon, max_lon: Rango de coordenadas
  */
 router.get('/heatmap', async (req, res) => {
@@ -146,6 +148,8 @@ router.get('/heatmap', async (req, res) => {
       offset = 0,
       crime_type, 
       dept_code,
+      prov_code,
+      dist_code,
       min_lat,
       max_lat,
       min_lon,
@@ -163,6 +167,8 @@ router.get('/heatmap', async (req, res) => {
 
     if (crime_type) filters.crimeType = crime_type;
     if (dept_code) filters.deptCode = dept_code;
+    if (prov_code) filters.provCode = prov_code;
+    if (dist_code) filters.distCode = dist_code;
 
     // Filtro por bounding box
     if (min_lat && max_lat && min_lon && max_lon) {
@@ -195,6 +201,8 @@ router.get('/heatmap', async (req, res) => {
       filters: {
         crime_type: crime_type || null,
         dept_code: dept_code || null,
+        prov_code: prov_code || null,
+        dist_code: dist_code || null,
         bbox: min_lat && max_lat && min_lon && max_lon ? { min_lat, max_lat, min_lon, max_lon } : null,
       },
     });
