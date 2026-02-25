@@ -2,6 +2,8 @@ const { Router } = require('express');
 const router = Router();
 const {
   batchUpsertIndeci,
+  deduplicateIndeciRecords,
+  countIndeciDuplicates,
   getIndeciByHoursRange,
   getIndeciByDaysRange,
   getIndeciByDistrito,
@@ -35,8 +37,13 @@ async function updateIndeciData() {
     if (emergencias && emergencias.length > 0) {
       console.log(`INDECI: guardando ${emergencias.length} incidentes en BD...`);
       await batchUpsertIndeci(emergencias);
+      
+      // Desduplicar registros
+      console.log('INDECI: deduplicando registros...');
+      const duplicatesRemoved = await deduplicateIndeciRecords();
+      
       lastSuccessfulUpdate = new Date();
-      console.log('INDECI: actualizacion completada');
+      console.log(`INDECI: actualizacion completada (${duplicatesRemoved} duplicados eliminados)`);
     } else {
       console.log('INDECI: no se recibieron datos nuevos');
     }
@@ -59,6 +66,17 @@ function startPeriodicUpdate() {
 if (!global.indeciUpdateStarted) {
   startPeriodicUpdate();
   global.indeciUpdateStarted = true;
+  
+  // Desduplicar al arrancar para limpiar registros viejos duplicados
+  setTimeout(async () => {
+    try {
+      console.log('INDECI: ejecutando desduplicacion de inicio...');
+      const duplicatesRemoved = await deduplicateIndeciRecords();
+      console.log(`INDECI: desduplicacion inicial completada (${duplicatesRemoved} duplicados eliminados)`);
+    } catch (error) {
+      console.error('INDECI: error en desduplicacion inicial:', error.message);
+    }
+  }, 5000);
 }
 
 /**
@@ -182,6 +200,34 @@ router.get('/status', async (req, res) => {
     });
   } catch (error) {
     console.error('INDECI: error al obtener estado:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+/**
+ * POST /v2/peru/indeci/incidentes/deduplicate
+ * Ejecuta desduplicacion manual de registros
+ */
+router.post('/deduplicate', async (req, res) => {
+  try {
+    console.log('INDECI: iniciando desduplicacion manual...');
+    
+    const duplicates = await countIndeciDuplicates();
+    const duplicatesRemoved = await deduplicateIndeciRecords();
+    
+    res.json({
+      success: true,
+      duplicatesRemoved,
+      duplicatesFound: duplicates,
+      message: `Se eliminaron ${duplicatesRemoved} registros duplicados`,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('INDECI: error en desduplicacion manual:', error);
     res.status(500).json({
       success: false,
       error: error.message,

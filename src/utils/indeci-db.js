@@ -37,6 +37,56 @@ function convertToMySQLDatetime(isoDate) {
   }
 }
 
+async function deduplicateIndeciRecords() {
+  const connection = await pool.getConnection();
+  try {
+    // Encontrar registros duplicados y eliminar los más nuevos, guardando los más viejos
+    const deleteQuery = `
+      DELETE FROM indeci_incidentes 
+      WHERE id IN (
+        SELECT id FROM (
+          SELECT id 
+          FROM indeci_incidentes 
+          WHERE id IN (
+            SELECT sinpad_code 
+            FROM indeci_incidentes 
+            GROUP BY sinpad_code 
+            HAVING COUNT(*) > 1
+          )
+          AND id NOT IN (
+            SELECT MIN(id) 
+            FROM indeci_incidentes 
+            GROUP BY sinpad_code 
+            HAVING COUNT(*) > 1
+          )
+        ) AS temp
+      )
+    `;
+    
+    const result = await connection.query(deleteQuery);
+    const deletedCount = result[0]?.affectedRows || 0;
+    console.log(`INDECI: eliminados ${deletedCount} registros duplicados`);
+    return deletedCount;
+  } finally {
+    connection.release();
+  }
+}
+
+async function countIndeciDuplicates() {
+  const connection = await pool.getConnection();
+  try {
+    const [rows] = await connection.query(`
+      SELECT sinpad_code, COUNT(*) as count 
+      FROM indeci_incidentes 
+      GROUP BY sinpad_code 
+      HAVING count > 1
+    `);
+    return rows;
+  } finally {
+    connection.release();
+  }
+}
+
 async function batchUpsertIndeci(incidentes) {
   const connection = await pool.getConnection();
   try {
@@ -149,6 +199,8 @@ module.exports = {
   pool,
   convertToMySQLDatetime,
   batchUpsertIndeci,
+  deduplicateIndeciRecords,
+  countIndeciDuplicates,
   getIndeciByHoursRange,
   getIndeciByDaysRange,
   getIndeciByDistrito,

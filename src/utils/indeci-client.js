@@ -84,12 +84,12 @@ async function fetchIndeciEmergencias() {
   const emergencias = data.features.map((feature, idx) => {
     const attrs = feature.attributes || {};
     const geom = feature.geometry || {};
-    const objectId = attrs.OBJECTID ?? idx;
+    const ideSinpad = attrs.IDE_SINPAD || `OBJECTID-${attrs.OBJECTID}` || `INDECI-${idx}`;
     const occurredAtIso = mergeIndeciDateWithCurrentPeruTime(attrs.FECHA, now) || now.toISOString();
 
     return {
-      id: `indeci-${objectId}`,
-      sinpad_code: `INDECI-${objectId}`,
+      id: ideSinpad,
+      sinpad_code: ideSinpad,
       type: getEmergenciaTypeIndeci(attrs.FENOMENO),
       description: attrs.DESCRIPCION || attrs.FENOMENO || 'Sin descripcion',
       location: attrs.DISTRITO || 'Ubicacion desconocida',
