@@ -14,6 +14,54 @@ const pool = mysql.createPool({
 });
 
 /**
+ * Combina una fecha y una hora (que pueden estar separadas) en un datetime completo
+ * El API del IGP envía:
+ * - fecha_utc: "2026-01-01T00:00:00.000Z" (fecha correcta, hora 00:00:00)
+ * - hora_utc: "1970-01-01T10:20:25.000Z" (fecha epoch, hora correcta)
+ */
+function combineDatetimeFields(dateStr, timeStr) {
+  if (!dateStr) return null;
+
+  try {
+    // Si no hay hora, usar la fecha tal como está
+    if (!timeStr) {
+      return convertToMySQLDatetime(dateStr);
+    }
+
+    // Parsear la fecha
+    const dateObj = new Date(dateStr);
+    if (isNaN(dateObj.getTime())) return null;
+
+    // Parsear la hora
+    const timeObj = new Date(timeStr);
+    if (isNaN(timeObj.getTime())) {
+      // Si la hora es inválida, usar solo la fecha
+      return convertToMySQLDatetime(dateStr);
+    }
+
+    // Combinar usando Date.UTC para evitar conversión de zona horaria
+    const year = dateObj.getUTCFullYear();
+    const month = dateObj.getUTCMonth();
+    const day = dateObj.getUTCDate();
+    const hours = timeObj.getUTCHours();
+    const minutes = timeObj.getUTCMinutes();
+    const seconds = timeObj.getUTCSeconds();
+
+    // Formatear directamente sin crear objeto Date intermedio
+    const monthStr = String(month + 1).padStart(2, '0');
+    const dayStr = String(day).padStart(2, '0');
+    const hoursStr = String(hours).padStart(2, '0');
+    const minutesStr = String(minutes).padStart(2, '0');
+    const secondsStr = String(seconds).padStart(2, '0');
+
+    return `${year}-${monthStr}-${dayStr} ${hoursStr}:${minutesStr}:${secondsStr}`;
+  } catch (error) {
+    console.error('Error combinando fecha y hora:', error);
+    return convertToMySQLDatetime(dateStr);
+  }
+}
+
+/**
  * Convierte fecha ISO 8601 a formato MySQL DATETIME
  */
 function convertToMySQLDatetime(isoDate) {
@@ -37,7 +85,7 @@ function convertToMySQLDatetime(isoDate) {
   }
 }
 
-const UTC_COMBINED_EXPR = 'TIMESTAMP(DATE(COALESCE(datetime_utc, utc_date)), TIME(utc_time))';
+const UTC_COMBINED_EXPR = 'COALESCE(datetime_utc, utc_date, date)';
 
 /**
  * Convierte campos del API del IGP a campos de BD
@@ -54,7 +102,7 @@ function mapIGPToDatabase(sismo) {
     local_time: sismo.hora_local ? convertToMySQLDatetime(sismo.hora_local) : null,
     utc_date: sismo.fecha_utc ? convertToMySQLDatetime(sismo.fecha_utc) : null,
     utc_time: sismo.hora_utc ? convertToMySQLDatetime(sismo.hora_utc) : null,
-    datetime_utc: sismo.fecha_utc ? convertToMySQLDatetime(sismo.fecha_utc) : null,
+    datetime_utc: combineDatetimeFields(sismo.fecha_utc || sismo.fecha, sismo.hora_utc),
     created_at: sismo.createdAt ? convertToMySQLDatetime(sismo.createdAt) : convertToMySQLDatetime(new Date().toISOString()),
     updated_at: sismo.updatedAt ? convertToMySQLDatetime(sismo.updatedAt) : convertToMySQLDatetime(new Date().toISOString()),
     latitude: parseFloat(sismo.latitud) || null,
@@ -115,6 +163,11 @@ async function batchUpsertEarthquakes(sismos) {
         ON DUPLICATE KEY UPDATE
           \`codes\` = VALUES(\`codes\`),
           \`report_number\` = VALUES(\`report_number\`),
+          \`datetime_utc\` = VALUES(\`datetime_utc\`),
+          \`utc_date\` = VALUES(\`utc_date\`),
+          \`utc_time\` = VALUES(\`utc_time\`),
+          \`local_date\` = VALUES(\`local_date\`),
+          \`local_time\` = VALUES(\`local_time\`),
           \`intensity\` = VALUES(\`intensity\`),
           \`intensities\` = VALUES(\`intensities\`),
           \`updated_at\` = VALUES(\`updated_at\`),
@@ -187,7 +240,8 @@ async function getEarthquakesByHoursRange(hours = 24) {
   try {
     const query = `
       SELECT * FROM earthquakes 
-      WHERE ${UTC_COMBINED_EXPR} >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL ? HOUR)
+      WHERE ${UTC_COMBINED_EXPR} IS NOT NULL
+      AND ${UTC_COMBINED_EXPR} >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL ? HOUR)
       AND ${UTC_COMBINED_EXPR} <= UTC_TIMESTAMP()
       ORDER BY ${UTC_COMBINED_EXPR} DESC 
       LIMIT 5000
@@ -207,8 +261,9 @@ async function getEarthquakesByDaysRange(days = 7) {
   try {
     const query = `
       SELECT * FROM earthquakes 
-      WHERE datetime_utc >= DATE_SUB(NOW(), INTERVAL ? DAY) 
-      ORDER BY datetime_utc DESC 
+      WHERE ${UTC_COMBINED_EXPR} IS NOT NULL
+      AND ${UTC_COMBINED_EXPR} >= DATE_SUB(NOW(), INTERVAL ? DAY) 
+      ORDER BY ${UTC_COMBINED_EXPR} DESC 
       LIMIT 5000
     `;
     const [rows] = await connection.query(query, [days]);
@@ -227,6 +282,7 @@ async function getEarthquakesByMinimumMagnitude(magnitude = 4.0, hours = 24) {
     const query = `
       SELECT * FROM earthquakes 
       WHERE magnitude >= ? 
+      AND ${UTC_COMBINED_EXPR} IS NOT NULL
       AND ${UTC_COMBINED_EXPR} >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL ? HOUR)
       AND ${UTC_COMBINED_EXPR} <= UTC_TIMESTAMP()
       ORDER BY magnitude DESC, ${UTC_COMBINED_EXPR} DESC 
@@ -284,6 +340,7 @@ async function getEarthquakesByReference(reference, hours = 72) {
     const query = `
       SELECT * FROM earthquakes 
       WHERE (reference LIKE ? OR reference2 LIKE ? OR reference3 LIKE ?)
+      AND ${UTC_COMBINED_EXPR} IS NOT NULL
       AND ${UTC_COMBINED_EXPR} >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL ? HOUR)
       AND ${UTC_COMBINED_EXPR} <= UTC_TIMESTAMP()
       ORDER BY ${UTC_COMBINED_EXPR} DESC 
@@ -326,6 +383,7 @@ async function getSignificantEarthquakes(magnitudeThreshold = 4.0) {
     const query = `
       SELECT * FROM earthquakes 
       WHERE magnitude >= ? 
+      AND ${UTC_COMBINED_EXPR} IS NOT NULL
       AND ${UTC_COMBINED_EXPR} >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 24 HOUR)
       AND ${UTC_COMBINED_EXPR} <= UTC_TIMESTAMP()
       ORDER BY magnitude DESC, ${UTC_COMBINED_EXPR} DESC
