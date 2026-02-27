@@ -37,6 +37,52 @@ function convertToMySQLDatetime(isoDate) {
   }
 }
 
+function toDateObject(value) {
+  if (!value) return null;
+  if (value instanceof Date) return value;
+
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function buildUtcDateTimeFromFields(utcDateValue, utcTimeValue) {
+  const dateObj = toDateObject(utcDateValue);
+  const timeObj = toDateObject(utcTimeValue);
+
+  if (!dateObj || !timeObj) return null;
+
+  const year = dateObj.getUTCFullYear();
+  const monthIndex = dateObj.getUTCMonth();
+  const dayBase = dateObj.getUTCDate();
+
+  const totalSeconds = Math.floor(timeObj.getTime() / 1000);
+  const totalHours = Math.floor(totalSeconds / 3600);
+  const daysToAdd = Math.floor(totalHours / 24);
+  const hours = totalHours % 24;
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  return new Date(Date.UTC(year, monthIndex, dayBase + daysToAdd, hours, minutes, seconds));
+}
+
+function getPeruTimestampFromUTCFields(utcDateValue, utcTimeValue) {
+  const utcDateTime = buildUtcDateTimeFromFields(utcDateValue, utcTimeValue);
+  if (!utcDateTime) return null;
+
+  return utcDateTime.getTime() - 5 * 60 * 60 * 1000;
+}
+
+function filterEarthquakesByPeruHours(rows, hours) {
+  const nowPeruMs = Date.now() - 5 * 60 * 60 * 1000;
+  const minPeruMs = nowPeruMs - hours * 60 * 60 * 1000;
+
+  return rows.filter((row) => {
+    const peruMs = getPeruTimestampFromUTCFields(row.utc_date, row.utc_time);
+    if (!peruMs) return false;
+    return peruMs >= minPeruMs && peruMs <= nowPeruMs;
+  });
+}
+
 /**
  * Convierte campos del API del IGP a campos de BD
  */
@@ -183,14 +229,18 @@ async function batchUpsertEarthquakes(sismos) {
 async function getEarthquakesByHoursRange(hours = 24) {
   const connection = await pool.getConnection();
   try {
+    const daysWindow = Math.max(1, Math.ceil(hours / 24) + 1);
     const query = `
       SELECT * FROM earthquakes 
-      WHERE datetime_utc >= DATE_SUB(NOW(), INTERVAL ? HOUR) 
-      ORDER BY datetime_utc DESC 
-      LIMIT 2000
+      WHERE (
+        (utc_date IS NOT NULL AND utc_date >= DATE_SUB(UTC_DATE(), INTERVAL ? DAY))
+        OR (datetime_utc IS NOT NULL AND datetime_utc >= DATE_SUB(UTC_DATE(), INTERVAL ? DAY))
+      )
+      ORDER BY COALESCE(utc_date, datetime_utc) DESC 
+      LIMIT 5000
     `;
-    const [rows] = await connection.query(query, [hours]);
-    return rows;
+    const [rows] = await connection.query(query, [daysWindow, daysWindow]);
+    return filterEarthquakesByPeruHours(rows, hours);
   } finally {
     connection.release();
   }
@@ -221,15 +271,19 @@ async function getEarthquakesByDaysRange(days = 7) {
 async function getEarthquakesByMinimumMagnitude(magnitude = 4.0, hours = 24) {
   const connection = await pool.getConnection();
   try {
+    const daysWindow = Math.max(1, Math.ceil(hours / 24) + 1);
     const query = `
       SELECT * FROM earthquakes 
       WHERE magnitude >= ? 
-      AND datetime_utc >= DATE_SUB(NOW(), INTERVAL ? HOUR)
-      ORDER BY magnitude DESC, datetime_utc DESC 
-      LIMIT 1000
+      AND (
+        (utc_date IS NOT NULL AND utc_date >= DATE_SUB(UTC_DATE(), INTERVAL ? DAY))
+        OR (datetime_utc IS NOT NULL AND datetime_utc >= DATE_SUB(UTC_DATE(), INTERVAL ? DAY))
+      )
+      ORDER BY magnitude DESC, COALESCE(utc_date, datetime_utc) DESC 
+      LIMIT 3000
     `;
-    const [rows] = await connection.query(query, [magnitude, hours]);
-    return rows;
+    const [rows] = await connection.query(query, [magnitude, daysWindow, daysWindow]);
+    return filterEarthquakesByPeruHours(rows, hours);
   } finally {
     connection.release();
   }
@@ -277,16 +331,20 @@ async function getEarthquakeByCode(code) {
 async function getEarthquakesByReference(reference, hours = 72) {
   const connection = await pool.getConnection();
   try {
+    const daysWindow = Math.max(1, Math.ceil(hours / 24) + 1);
     const query = `
       SELECT * FROM earthquakes 
       WHERE (reference LIKE ? OR reference2 LIKE ? OR reference3 LIKE ?)
-      AND datetime_utc >= DATE_SUB(NOW(), INTERVAL ? HOUR)
-      ORDER BY datetime_utc DESC 
-      LIMIT 500
+      AND (
+        (utc_date IS NOT NULL AND utc_date >= DATE_SUB(UTC_DATE(), INTERVAL ? DAY))
+        OR (datetime_utc IS NOT NULL AND datetime_utc >= DATE_SUB(UTC_DATE(), INTERVAL ? DAY))
+      )
+      ORDER BY COALESCE(utc_date, datetime_utc) DESC 
+      LIMIT 2000
     `;
     const searchTerm = `%${reference}%`;
-    const [rows] = await connection.query(query, [searchTerm, searchTerm, searchTerm, hours]);
-    return rows;
+    const [rows] = await connection.query(query, [searchTerm, searchTerm, searchTerm, daysWindow, daysWindow]);
+    return filterEarthquakesByPeruHours(rows, hours);
   } finally {
     connection.release();
   }
@@ -318,14 +376,19 @@ async function getEarthquakeLastUpdateStatus() {
 async function getSignificantEarthquakes(magnitudeThreshold = 4.0) {
   const connection = await pool.getConnection();
   try {
+    const hours = 24;
+    const daysWindow = Math.max(1, Math.ceil(hours / 24) + 1);
     const query = `
       SELECT * FROM earthquakes 
       WHERE magnitude >= ? 
-      AND datetime_utc >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
-      ORDER BY magnitude DESC, datetime_utc DESC
+      AND (
+        (utc_date IS NOT NULL AND utc_date >= DATE_SUB(UTC_DATE(), INTERVAL ? DAY))
+        OR (datetime_utc IS NOT NULL AND datetime_utc >= DATE_SUB(UTC_DATE(), INTERVAL ? DAY))
+      )
+      ORDER BY magnitude DESC, COALESCE(utc_date, datetime_utc) DESC
     `;
-    const [rows] = await connection.query(query, [magnitudeThreshold]);
-    return rows;
+    const [rows] = await connection.query(query, [magnitudeThreshold, daysWindow, daysWindow]);
+    return filterEarthquakesByPeruHours(rows, hours);
   } finally {
     connection.release();
   }
