@@ -90,10 +90,12 @@ const refreshCompaniesCache = async () => {
 
     const companies = Array.isArray(response.data) ? response.data : [];
     
-    // Extraer los IDs de las empresas (asumiendo que tienen un campo 'id')
+    // Extraer los IDs de las empresas
     const companyIds = companies
       .map((company) => {
-        // Intentar extraer el ID de diferentes formatos posibles
+        // Si es un número directamente, devolverlo
+        if (Number.isFinite(company)) return company;
+        // Si es un objeto, intentar extraer el ID
         return company.id || company.company_id || company.empresaId;
       })
       .filter((id) => Number.isFinite(id));
