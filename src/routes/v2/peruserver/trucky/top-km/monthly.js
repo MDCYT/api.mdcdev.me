@@ -4,9 +4,11 @@ const axios = require('axios');
 const router = Router();
 
 const TRUCKY_BASE_URL = 'https://e.truckyapp.com/api/v1/company';
+const PERUSERVER_COMPANIES_URL = 'https://peruserver.pe/wp-json/psv/v1/companies';
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
 const CACHE_TTL_MS = 30 * 60 * 1000;
+const COMPANIES_CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 horas
 const TRUCKY_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36',
   Accept: 'application/json, text/plain, */*',
@@ -15,17 +17,13 @@ const TRUCKY_HEADERS = {
   'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
 };
 
-const COMPANY_IDS = [
-  41299, 41321, 41317, 41323, 41326,
-  41369, 41371, 41374, 41375, 41376,
-  41377, 41378, 41379, 41382, 41389,
-  41407, 41408, 41409, 41410, 41411,
-  41413, 41525, 41527, 41528, 41530,
-  41533, 41534, 41535, 41536, 41537,
-  41540, 41541, 41542, 41543, 41544,
-];
-
 const monthlyCache = new Map();
+const companiesCache = {
+  companyIds: [],
+  nextRefreshAt: 0,
+  inFlight: null,
+  lastError: null,
+};
 
 const nowUtc = () => new Date();
 
@@ -80,6 +78,58 @@ const mapWithConcurrency = async (items, concurrency, asyncMapper) => {
 
   await Promise.all(workers);
   return results;
+};
+
+const refreshCompaniesCache = async () => {
+  try {
+    const response = await axios.get(PERUSERVER_COMPANIES_URL, {
+      timeout: 15000,
+    });
+
+    const companies = Array.isArray(response.data) ? response.data : [];
+    
+    // Extraer los IDs de las empresas (asumiendo que tienen un campo 'id')
+    const companyIds = companies
+      .map((company) => {
+        // Intentar extraer el ID de diferentes formatos posibles
+        return company.id || company.company_id || company.empresaId;
+      })
+      .filter((id) => Number.isFinite(id));
+
+    companiesCache.companyIds = companyIds;
+    companiesCache.nextRefreshAt = Date.now() + COMPANIES_CACHE_TTL_MS;
+    companiesCache.lastError = null;
+
+    return companyIds;
+  } catch (error) {
+    companiesCache.lastError = {
+      message: error.message || 'Error desconocido al obtener empresas',
+      at: new Date().toISOString(),
+    };
+
+    // Mantener el TTL anterior si hay error
+    companiesCache.nextRefreshAt = Date.now() + COMPANIES_CACHE_TTL_MS;
+
+    // Retornar cache anterior si disponible
+    return companiesCache.companyIds;
+  }
+};
+
+const getCompanies = async () => {
+  const mustRefresh = Date.now() >= companiesCache.nextRefreshAt;
+
+  if (mustRefresh && !companiesCache.inFlight) {
+    companiesCache.inFlight = refreshCompaniesCache()
+      .finally(() => {
+        companiesCache.inFlight = null;
+      });
+  }
+
+  if (companiesCache.inFlight) {
+    await companiesCache.inFlight;
+  }
+
+  return companiesCache.companyIds;
 };
 
 const getCompanyMonthlyData = async (companyId, month, year) => {
@@ -153,7 +203,8 @@ const getCompanyMonthlyData = async (companyId, month, year) => {
 };
 
 const buildMonthlyResponse = async ({ month, year, limit }) => {
-  const selectedCompanyIds = COMPANY_IDS.slice(0, limit);
+  const allCompanyIds = await getCompanies();
+  const selectedCompanyIds = allCompanyIds.slice(0, limit);
 
   const items = await mapWithConcurrency(selectedCompanyIds, 5, async (companyId) => {
     return getCompanyMonthlyData(companyId, month, year);
