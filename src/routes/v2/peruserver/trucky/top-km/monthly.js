@@ -143,7 +143,7 @@ const getCompanyMonthlyData = async (companyId, month, year) => {
     tag: '',
     distance: 0,
     members: null,
-    jobs: null,
+    total_jobs: null,
     stats_http_code: null,
     updated: processedAt,
     stats_raw: null,
@@ -180,7 +180,7 @@ const getCompanyMonthlyData = async (companyId, month, year) => {
       ? Math.max(0, membersCount - 1)
       : null;
 
-    const jobs = Number.isFinite(Number(statsData?.total?.total_jobs))
+    const total_jobs = Number.isFinite(Number(statsData?.total?.total_jobs))
       ? Number(statsData.total.total_jobs)
       : null;
 
@@ -190,7 +190,7 @@ const getCompanyMonthlyData = async (companyId, month, year) => {
       tag: companyData?.tag || '',
       distance: totalKm,
       members,
-      jobs,
+      total_jobs,
       stats_http_code: statsHttpCode,
       updated: processedAt,
       stats_raw: statsData,
