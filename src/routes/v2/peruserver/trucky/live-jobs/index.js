@@ -1,5 +1,6 @@
 const { Router } = require('express');
 const axios = require('axios');
+const { Cache } = require('../../../../../utils/cache');
 const {
   startPeriodicProxyUpdate,
   getRandomProxy,
@@ -31,8 +32,16 @@ const SNAPSHOT_TTL_MS = 45 * 1000;
 const SNAPSHOT_DB_MAX_AGE_MS = 90 * 1000;
 const TRUCKY_MAX_RETRIES = Math.max(1, Number.parseInt(process.env.TRUCKY_MAX_RETRIES || '3', 10) || 3);
 const TRUCKY_RETRY_BASE_MS = Math.max(200, Number.parseInt(process.env.TRUCKY_RETRY_BASE_MS || '700', 10) || 700);
+const ROUTE_REDIS_TTL_SECONDS = Math.max(
+  3 * 24 * 60 * 60,
+  Number.parseInt(process.env.TRUCKY_ROUTE_REDIS_TTL_SECONDS || '259200', 10) || 259200
+);
 
 const snapshotCache = new Map();
+const routeFullMemoryCache = new Map();
+const routeFullRedisCache = process.env.REDIS_URL
+  ? new Cache('trucky-route-full', 3, ROUTE_REDIS_TTL_SECONDS)
+  : null;
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || '';
 const SUPABASE_ANON_KEY =
@@ -43,6 +52,33 @@ const SUPABASE_ANON_KEY =
 
 startPeriodicProxyUpdate();
 
+const routeCacheGet = async (routeKey) => {
+  if (routeFullRedisCache) {
+    if (!(await routeFullRedisCache.has(routeKey))) return null;
+    return await routeFullRedisCache.get(routeKey);
+  }
+
+  const entry = routeFullMemoryCache.get(routeKey);
+  if (!entry) return null;
+  if (Date.now() >= entry.expiresAt) {
+    routeFullMemoryCache.delete(routeKey);
+    return null;
+  }
+
+  return entry.value;
+};
+
+const routeCacheSet = async (routeKey, value) => {
+  if (routeFullRedisCache) {
+    await routeFullRedisCache.set(routeKey, value, ROUTE_REDIS_TTL_SECONDS);
+    return;
+  }
+
+  routeFullMemoryCache.set(routeKey, {
+    value,
+    expiresAt: Date.now() + ROUTE_REDIS_TTL_SECONDS * 1000,
+  });
+};
 const sanitizeCompanyName = (name) => {
   if (typeof name !== 'string') return '';
   return name.replace(/\s+/g, ' ').trim();
@@ -389,12 +425,50 @@ const fetchCachedRoutes = async (
 ) => {
   const env = getSupabaseCacheEnv();
   const readKey = (env && (env.anonKey || env.key)) || '';
-  if (!env || !routeKeys.length || !readKey) {
+  if (!routeKeys.length) {
     return {};
   }
 
   try {
-    const inFilter = encodeURIComponent(buildInFilter(routeKeys));
+    const map = {};
+    const missingKeys = [];
+
+    // Resolver primero desde Redis/memoria.
+    await Promise.all(routeKeys.map(async (key) => {
+      try {
+        const cached = await routeCacheGet(key);
+        if (!cached || !Array.isArray(cached.coordinates) || cached.coordinates.length < 2) {
+          missingKeys.push(key);
+          return;
+        }
+
+        const includeCoordinates = includeAllCoordinates || coordinateRouteKeys.has(key);
+        map[key] = {
+          coordinates: includeCoordinates ? cached.coordinates : null,
+          distanceMeters: Number.isFinite(Number(cached.distanceMeters))
+            ? Number(cached.distanceMeters)
+            : null,
+          durationSeconds: Number.isFinite(Number(cached.durationSeconds))
+            ? Number(cached.durationSeconds)
+            : null,
+          source: 'redis',
+          updatedAt: cached.updatedAt || new Date(0).toISOString(),
+        };
+      } catch (error) {
+        missingKeys.push(key);
+      }
+    }));
+
+    const uniqueMissingKeys = Array.from(new Set(missingKeys));
+    if (!uniqueMissingKeys.length) {
+      return map;
+    }
+
+    if (!env || !readKey) {
+      return map;
+    }
+
+    const inFilter = encodeURIComponent(buildInFilter(uniqueMissingKeys));
     const baseResponse = await axios.get(
       `${env.url}/rest/v1/trucky_route_cache?select=route_key,distance_meters,duration_seconds,updated_at&route_key=${inFilter}`,
       {
@@ -407,32 +481,44 @@ const fetchCachedRoutes = async (
     );
 
     const rows = Array.isArray(baseResponse.data) ? baseResponse.data : [];
-    const map = {};
+    const metadataFromSupabase = {};
 
     for (const row of rows) {
       const key = row.route_key || '';
       if (!key) continue;
 
+      const distanceMeters = row.distance_meters != null ? Number(row.distance_meters) : null;
+      const durationSeconds = row.duration_seconds != null ? Number(row.duration_seconds) : null;
+      const updatedAt = row.updated_at || new Date(0).toISOString();
+
+      metadataFromSupabase[key] = {
+        distanceMeters,
+        durationSeconds,
+        updatedAt,
+      };
+
       map[key] = {
         coordinates: null,
-        distanceMeters: row.distance_meters != null ? Number(row.distance_meters) : null,
-        durationSeconds: row.duration_seconds != null ? Number(row.duration_seconds) : null,
-        source: 'cache',
-        updatedAt: row.updated_at || new Date(0).toISOString(),
+        distanceMeters,
+        durationSeconds,
+        source: 'supabase',
+        updatedAt,
       };
     }
 
-    const routeKeysWithCoordinates = includeAllCoordinates
-      ? routeKeys
-      : routeKeys.filter((key) => coordinateRouteKeys.has(key));
+    // Cargar y persistir rutas completas para faltantes; incluir las solicitadas explícitamente.
+    const keysThatNeedCoordinates = Array.from(new Set([
+      ...uniqueMissingKeys,
+      ...routeKeys.filter((key) => includeAllCoordinates || coordinateRouteKeys.has(key)),
+    ]));
 
-    if (!routeKeysWithCoordinates.length) {
+    if (!keysThatNeedCoordinates.length) {
       return map;
     }
 
-    const coordinatesFilter = encodeURIComponent(buildInFilter(routeKeysWithCoordinates));
+    const coordinatesFilter = encodeURIComponent(buildInFilter(keysThatNeedCoordinates));
     const coordinatesResponse = await axios.get(
-      `${env.url}/rest/v1/trucky_route_cache?select=route_key,coordinates&route_key=${coordinatesFilter}`,
+      `${env.url}/rest/v1/trucky_route_cache?select=route_key,coordinates,distance_meters,duration_seconds,updated_at&route_key=${coordinatesFilter}`,
       {
         headers: {
           apikey: readKey,
@@ -464,16 +550,50 @@ const fetchCachedRoutes = async (
         continue;
       }
 
+      const distanceMeters = row.distance_meters != null
+        ? Number(row.distance_meters)
+        : (metadataFromSupabase[key] ? metadataFromSupabase[key].distanceMeters : null);
+      const durationSeconds = row.duration_seconds != null
+        ? Number(row.duration_seconds)
+        : (metadataFromSupabase[key] ? metadataFromSupabase[key].durationSeconds : null);
+      const updatedAt = row.updated_at || (metadataFromSupabase[key] ? metadataFromSupabase[key].updatedAt : new Date(0).toISOString());
+
+      try {
+        await routeCacheSet(key, {
+          routeKey: key,
+          coordinates: parsedCoordinates,
+          distanceMeters,
+          durationSeconds,
+          updatedAt,
+        });
+      } catch (error) {
+        // No bloquear por fallas puntuales de Redis.
+      }
+
+      const includeCoordinates = includeAllCoordinates || coordinateRouteKeys.has(key);
+
       if (!map[key]) {
         map[key] = {
-          coordinates: parsedCoordinates,
+          coordinates: includeCoordinates ? parsedCoordinates : null,
+          distanceMeters,
+          durationSeconds,
+          source: 'supabase',
+          updatedAt,
+        };
+      } else if (includeCoordinates) {
+        map[key].coordinates = parsedCoordinates;
+      }
+    }
+
+    for (const key of routeKeys) {
+      if (!map[key]) {
+        map[key] = {
+          coordinates: null,
           distanceMeters: null,
           durationSeconds: null,
-          source: 'cache',
+          source: 'none',
           updatedAt: new Date(0).toISOString(),
         };
-      } else {
-        map[key].coordinates = parsedCoordinates;
       }
     }
 

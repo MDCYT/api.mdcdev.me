@@ -21,6 +21,11 @@ const MAX_LIMIT = 200;
 const CACHE_TTL_CURRENT_MONTH_MS = 30 * 60 * 1000; // 30 minutos
 const CACHE_TTL_PAST_MONTH_MS = 24 * 60 * 60 * 1000; // 24 horas
 const COMPANIES_CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 horas
+const BACKGROUND_RETRY_BASE_MS = Math.max(2000, Number.parseInt(process.env.TRUCKY_BACKGROUND_RETRY_BASE_MS || '5000', 10) || 5000);
+const BACKGROUND_RETRY_MAX_ATTEMPTS_RAW = Number.parseInt(process.env.TRUCKY_BACKGROUND_RETRY_MAX_ATTEMPTS || '6', 10);
+const BACKGROUND_RETRY_MAX_ATTEMPTS = Number.isFinite(BACKGROUND_RETRY_MAX_ATTEMPTS_RAW) && BACKGROUND_RETRY_MAX_ATTEMPTS_RAW <= 0
+  ? Infinity
+  : Math.max(1, BACKGROUND_RETRY_MAX_ATTEMPTS_RAW || 6);
 const DEFAULT_COMPANY_BATCH_SIZE = Math.min(
   5,
   Math.max(1, Number.parseInt(process.env.TRUCKY_CONCURRENCY || '3', 10) || 3)
@@ -44,6 +49,21 @@ const companiesCache = {
   nextRefreshAt: 0,
   inFlight: null,
   lastError: null,
+};
+
+const getSupabaseCacheEnv = () => {
+  const url = (SUPABASE_URL || '').replace(/\/+$/, '');
+  const anonKey = SUPABASE_ANON_KEY || '';
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+
+  if (!url) return null;
+
+  return {
+    url,
+    anonKey,
+    key: anonKey,
+    serviceRoleKey,
+  };
 };
 
 const nowUtc = () => new Date();
@@ -468,27 +488,115 @@ const buildAccumulatedResponse = async ({ startMonth, startYear, limit, companyB
 const getAccumulatedCacheKey = ({ startMonth, startYear, limit }) => 
   `accumulated-${startYear}-${startMonth}-${limit}`;
 
+const getBackupCacheKey = ({ startMonth, startYear, limit }) =>
+  `accumulated-${startYear}-${startMonth}-${limit}`;
+
+const fetchBackupPayload = async ({ startMonth, startYear, limit }) => {
+  const env = getSupabaseCacheEnv();
+  const readKey = (env && (env.anonKey || env.key)) || '';
+
+  if (!env || !readKey) return null;
+
+  try {
+    const backupKey = getBackupCacheKey({ startMonth, startYear, limit });
+    const response = await axios.get(
+      `${env.url}/rest/v1/trucky_top_km_cache?select=payload,updated_at&cache_key=eq.${encodeURIComponent(backupKey)}&limit=1`,
+      {
+        headers: {
+          apikey: readKey,
+          Authorization: `Bearer ${readKey}`,
+        },
+        timeout: 8000,
+      }
+    );
+
+    const rows = Array.isArray(response.data) ? response.data : [];
+    const row = rows[0] || null;
+    if (!row || !row.payload || typeof row.payload !== 'object') return null;
+
+    return {
+      payload: row.payload,
+      updatedAt: row.updated_at || null,
+    };
+  } catch (error) {
+    return null;
+  }
+};
+
+const saveBackupPayload = async ({ startMonth, startYear, limit }, payload) => {
+  const env = getSupabaseCacheEnv();
+  if (!env || !env.serviceRoleKey) return;
+
+  try {
+    const backupKey = getBackupCacheKey({ startMonth, startYear, limit });
+    await axios.post(
+      `${env.url}/rest/v1/trucky_top_km_cache`,
+      [{
+        cache_key: backupKey,
+        payload,
+        updated_at: new Date().toISOString(),
+      }],
+      {
+        headers: {
+          apikey: env.serviceRoleKey,
+          Authorization: `Bearer ${env.serviceRoleKey}`,
+          'Content-Type': 'application/json',
+          Prefer: 'resolution=merge-duplicates,return=minimal',
+        },
+        timeout: 10000,
+      }
+    );
+  } catch (error) {
+    // No bloquear respuesta principal por fallo de backup.
+  }
+};
+
 const getCacheEntry = (cacheKey) => {
   if (!accumulatedCache.has(cacheKey)) {
     accumulatedCache.set(cacheKey, {
       payload: null,
+      payloadSource: 'memory',
       nextRefreshAt: 0,
       inFlight: null,
       lastError: null,
+      retryAttempts: 0,
     });
   }
 
   return accumulatedCache.get(cacheKey);
 };
 
+const scheduleBackgroundRetry = (entry, params) => {
+  if (entry.inFlight) return;
+  if (entry.retryAttempts >= BACKGROUND_RETRY_MAX_ATTEMPTS) return;
+
+  const delayMs = BACKGROUND_RETRY_BASE_MS * (2 ** Math.min(entry.retryAttempts, 4));
+  const timer = setTimeout(() => {
+    if (!entry.inFlight) {
+      entry.inFlight = refreshCacheEntry(entry, params)
+        .finally(() => {
+          entry.inFlight = null;
+        });
+    }
+  }, delayMs);
+
+  if (typeof timer.unref === 'function') {
+    timer.unref();
+  }
+};
+
 const refreshCacheEntry = async (entry, params) => {
   try {
     const payload = await buildAccumulatedResponse(params);
     entry.payload = payload;
+    entry.payloadSource = 'memory';
     
     // El cache completo se refresca cada 30 min (porque incluye el mes actual)
     entry.nextRefreshAt = Date.now() + CACHE_TTL_CURRENT_MONTH_MS;
     entry.lastError = null;
+    entry.retryAttempts = 0;
+
+    await saveBackupPayload(params, payload);
   } catch (error) {
     entry.lastError = {
       message: error.message || 'Error desconocido al actualizar cache',
@@ -496,6 +604,8 @@ const refreshCacheEntry = async (entry, params) => {
     };
 
     entry.nextRefreshAt = Date.now() + CACHE_TTL_CURRENT_MONTH_MS;
+    entry.retryAttempts += 1;
+    scheduleBackgroundRetry(entry, params);
   }
 };
 
@@ -542,6 +652,14 @@ router.get('/', async (req, res) => {
       await entry.inFlight;
     }
 
+    if (!entry.payload) {
+      const backup = await fetchBackupPayload(params);
+      if (backup && backup.payload) {
+        entry.payload = backup.payload;
+        entry.payloadSource = 'supabase_backup';
+      }
+    }
+
     if (entry.payload) {
       return res.json({
         ...entry.payload,
@@ -550,6 +668,7 @@ router.get('/', async (req, res) => {
           refreshing: Boolean(entry.inFlight),
           stale: mustRefresh,
           mode: asyncMode ? 'async' : 'sync',
+          source: entry.payloadSource || 'memory',
         },
         truckyRequestConfig: {
           companyBatchSize,
