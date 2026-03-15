@@ -514,6 +514,7 @@ router.get('/', async (req, res) => {
     const limit = parseLimit(req.query.limit);
     const companyBatchSize = parsePositiveInt(req.query.companyBatchSize, DEFAULT_COMPANY_BATCH_SIZE, 1, 10);
     const disableProxy = parseBoolean(req.query.disableProxy, false);
+    const asyncMode = parseBoolean(req.query.async, process.env.NODE_ENV === 'production');
     const proxyCandidates = disableProxy ? [] : getTruckyProxyCandidates(req.query);
     const params = {
       startMonth,
@@ -537,19 +538,44 @@ router.get('/', async (req, res) => {
         });
     }
 
-    if (entry.inFlight) {
+    if (entry.inFlight && !asyncMode) {
       await entry.inFlight;
     }
 
     if (entry.payload) {
       return res.json({
         ...entry.payload,
+        cache: {
+          hasPayload: true,
+          refreshing: Boolean(entry.inFlight),
+          stale: mustRefresh,
+          mode: asyncMode ? 'async' : 'sync',
+        },
         truckyRequestConfig: {
           companyBatchSize,
           explicitProxiesCount: proxyCandidates.length,
           useProxyPool: !disableProxy,
           proxyPoolSize: !disableProxy ? getCachedProxies().length : 0,
         },
+      });
+    }
+
+    if (entry.inFlight && asyncMode) {
+      return res.status(202).json({
+        ok: true,
+        warming: true,
+        period: {
+          from: { month: startMonth, year: startYear },
+        },
+        limit,
+        message: 'Actualizando cache en segundo plano. Reintenta en unos segundos.',
+        truckyRequestConfig: {
+          companyBatchSize,
+          explicitProxiesCount: proxyCandidates.length,
+          useProxyPool: !disableProxy,
+          proxyPoolSize: !disableProxy ? getCachedProxies().length : 0,
+        },
+        timestamp: Math.floor(Date.now() / 1000),
       });
     }
 
