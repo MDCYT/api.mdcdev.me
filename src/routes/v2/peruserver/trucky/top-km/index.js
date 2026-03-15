@@ -33,7 +33,8 @@ const DEFAULT_COMPANY_BATCH_SIZE = Math.min(
 const TRUCKY_MAX_RETRIES = Math.max(1, Number.parseInt(process.env.TRUCKY_MAX_RETRIES || '3', 10) || 3);
 const TRUCKY_RETRY_BASE_MS = Math.max(200, Number.parseInt(process.env.TRUCKY_RETRY_BASE_MS || '700', 10) || 700);
 const TRUCKY_HEADERS = {
-  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36',
+  // User-Agent personalizado según la documentación de Trucky
+  'User-Agent': 'peruserver-bot/1.0 (+https://github.com/mdcyt; extracción de datos de empresas para ranking y análisis en peruserver.de)',
   Accept: 'application/json, text/plain, */*',
   Referer: 'https://hub.truckyapp.com/',
   Origin: 'https://hub.truckyapp.com',
