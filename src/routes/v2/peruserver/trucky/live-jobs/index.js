@@ -12,7 +12,8 @@ const router = Router();
 const TRUCKY_BASE_URL = 'https://e.truckyapp.com/api/v1/company';
 const PERUSERVER_COMPANIES_URL = 'https://peruserver.pe/wp-json/psv/v1/companies';
 const TRUCKY_HEADERS = {
-  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+  // User-Agent personalizado según la documentación de Trucky
+  'User-Agent': 'peruserver-bot/1.0 (+https://github.com/mdcyt; extracción de datos de empresas para ranking y análisis en peruserver.de)',
   Accept: 'application/json, text/plain, */*',
   Referer: 'https://hub.truckyapp.com/',
   Origin: 'https://hub.truckyapp.com',
