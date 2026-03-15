@@ -1,5 +1,10 @@
 const { Router } = require('express');
 const axios = require('axios');
+const {
+  startPeriodicProxyUpdate,
+  getRandomProxy,
+  getCachedProxies,
+} = require('../../../../../utils/proxy-manager');
 
 const router = Router();
 
@@ -15,6 +20,12 @@ const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
 const CACHE_TTL_MS = 30 * 60 * 1000;
 const COMPANIES_CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 horas
+const DEFAULT_COMPANY_BATCH_SIZE = Math.min(
+  5,
+  Math.max(1, Number.parseInt(process.env.TRUCKY_CONCURRENCY || '3', 10) || 3)
+);
+const TRUCKY_MAX_RETRIES = Math.max(1, Number.parseInt(process.env.TRUCKY_MAX_RETRIES || '3', 10) || 3);
+const TRUCKY_RETRY_BASE_MS = Math.max(200, Number.parseInt(process.env.TRUCKY_RETRY_BASE_MS || '700', 10) || 700);
 const TRUCKY_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36',
   Accept: 'application/json, text/plain, */*',
@@ -22,6 +33,8 @@ const TRUCKY_HEADERS = {
   Origin: 'https://hub.truckyapp.com',
   'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
 };
+
+startPeriodicProxyUpdate();
 
 const monthlyCache = new Map();
 const companiesCache = {
@@ -68,6 +81,102 @@ const parseLimit = (rawLimit) => {
   if (parsed > MAX_LIMIT) return MAX_LIMIT;
 
   return parsed;
+};
+
+const parseBoolean = (rawValue, defaultValue) => {
+  if (rawValue == null) return defaultValue;
+  const value = String(rawValue).trim().toLowerCase();
+
+  if (['1', 'true', 'yes', 'y', 'on'].includes(value)) return true;
+  if (['0', 'false', 'no', 'n', 'off'].includes(value)) return false;
+
+  return defaultValue;
+};
+
+const parsePositiveInt = (rawValue, defaultValue, minValue, maxValue) => {
+  const parsed = Number(rawValue);
+  if (!Number.isFinite(parsed)) return defaultValue;
+  return Math.min(Math.max(Math.floor(parsed), minValue), maxValue);
+};
+
+const parseProxyForAxios = (rawProxy) => {
+  if (!rawProxy) return null;
+
+  try {
+    const withProtocol = /^(http|https):\/\//i.test(rawProxy)
+      ? rawProxy
+      : `http://${rawProxy}`;
+    const url = new URL(withProtocol);
+
+    return {
+      protocol: url.protocol.replace(':', ''),
+      host: url.hostname,
+      port: Number(url.port || (url.protocol === 'https:' ? 443 : 80)),
+      auth: url.username
+        ? {
+            username: decodeURIComponent(url.username),
+            password: decodeURIComponent(url.password || ''),
+          }
+        : undefined,
+    };
+  } catch (error) {
+    return null;
+  }
+};
+
+const getTruckyProxyCandidates = (query) => {
+  const queryProxyRaw = query && query.truckyProxy ? String(query.truckyProxy).trim() : '';
+  const queryProxyListRaw = query && query.truckyProxyList ? String(query.truckyProxyList).trim() : '';
+
+  const queryProxies = queryProxyListRaw
+    ? queryProxyListRaw.split(',').map((item) => item.trim()).filter(Boolean)
+    : [];
+
+  if (queryProxyRaw) {
+    queryProxies.unshift(queryProxyRaw);
+  }
+
+  return queryProxies.filter(Boolean);
+};
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const isRetryableTruckyStatus = (status) => [403, 429, 500, 502, 503, 504].includes(status);
+
+const truckyRequestWithRetry = async ({ url, params, timeout = 15000, proxyCandidates = [], useProxyPool = true }) => {
+  let lastError = null;
+
+  for (let attempt = 0; attempt < TRUCKY_MAX_RETRIES; attempt += 1) {
+    const poolProxy = useProxyPool && proxyCandidates.length === 0 ? getRandomProxy() : null;
+    const proxyRaw = proxyCandidates.length > 0
+      ? proxyCandidates[attempt % proxyCandidates.length]
+      : poolProxy;
+    const proxy = parseProxyForAxios(proxyRaw);
+
+    try {
+      const response = await axios.get(url, {
+        params,
+        headers: TRUCKY_HEADERS,
+        timeout,
+        proxy: proxy || undefined,
+      });
+
+      return response;
+    } catch (error) {
+      lastError = error;
+      const status = Number(error && error.response && error.response.status);
+      const shouldRetry = isRetryableTruckyStatus(status);
+
+      if (!shouldRetry || attempt === TRUCKY_MAX_RETRIES - 1) {
+        throw error;
+      }
+
+      const waitMs = TRUCKY_RETRY_BASE_MS * (attempt + 1) + Math.floor(Math.random() * 250);
+      await sleep(waitMs);
+    }
+  }
+
+  throw lastError || new Error('Error desconocido consultando Trucky');
 };
 
 const mapWithConcurrency = async (items, concurrency, asyncMapper) => {
@@ -159,7 +268,7 @@ const getCompanies = async () => {
   return companiesCache.companyIds;
 };
 
-const getCompanyMonthlyData = async (companyId, month, year) => {
+const getCompanyMonthlyData = async (companyId, month, year, requestOptions = {}) => {
   const processedAt = nowUtc().toISOString();
 
   const fallbackItem = {
@@ -177,14 +286,18 @@ const getCompanyMonthlyData = async (companyId, month, year) => {
 
   try {
     const [companyResponse, statsResponse] = await Promise.allSettled([
-      axios.get(`${TRUCKY_BASE_URL}/${companyId}`, {
-        headers: TRUCKY_HEADERS,
+      truckyRequestWithRetry({
+        url: `${TRUCKY_BASE_URL}/${companyId}`,
         timeout: 15000,
+        proxyCandidates: requestOptions.proxyCandidates || [],
+        useProxyPool: requestOptions.useProxyPool !== false,
       }),
-      axios.get(`${TRUCKY_BASE_URL}/${companyId}/stats/monthly`, {
+      truckyRequestWithRetry({
+        url: `${TRUCKY_BASE_URL}/${companyId}/stats/monthly`,
         params: { month, year },
-        headers: TRUCKY_HEADERS,
         timeout: 15000,
+        proxyCandidates: requestOptions.proxyCandidates || [],
+        useProxyPool: requestOptions.useProxyPool !== false,
       }),
     ]);
 
@@ -229,12 +342,12 @@ const getCompanyMonthlyData = async (companyId, month, year) => {
   }
 };
 
-const buildMonthlyResponse = async ({ month, year, limit }) => {
+const buildMonthlyResponse = async ({ month, year, limit, companyBatchSize, requestOptions }) => {
   const allCompanyIds = await getCompanies();
   const selectedCompanyIds = allCompanyIds.slice(0, limit);
 
-  const items = await mapWithConcurrency(selectedCompanyIds, 5, async (companyId) => {
-    return getCompanyMonthlyData(companyId, month, year);
+  const items = await mapWithConcurrency(selectedCompanyIds, companyBatchSize, async (companyId) => {
+    return getCompanyMonthlyData(companyId, month, year, requestOptions);
   });
 
   const sortedItems = [...items].sort((a, b) => {
@@ -305,7 +418,20 @@ router.get('/', async (req, res) => {
 
     const { month, year } = parsedMonthYear;
     const limit = parseLimit(req.query.limit);
-    const params = { month, year, limit };
+    const companyBatchSize = parsePositiveInt(req.query.companyBatchSize, DEFAULT_COMPANY_BATCH_SIZE, 1, 10);
+    const disableProxy = parseBoolean(req.query.disableProxy, false);
+    const proxyCandidates = disableProxy ? [] : getTruckyProxyCandidates(req.query);
+
+    const params = {
+      month,
+      year,
+      limit,
+      companyBatchSize,
+      requestOptions: {
+        proxyCandidates,
+        useProxyPool: !disableProxy,
+      },
+    };
     const cacheKey = getCacheKey(params);
     const entry = getCacheEntry(cacheKey);
 
@@ -323,7 +449,15 @@ router.get('/', async (req, res) => {
     }
 
     if (entry.payload) {
-      return res.json(entry.payload);
+      return res.json({
+        ...entry.payload,
+        truckyRequestConfig: {
+          companyBatchSize,
+          explicitProxiesCount: proxyCandidates.length,
+          useProxyPool: !disableProxy,
+          proxyPoolSize: !disableProxy ? getCachedProxies().length : 0,
+        },
+      });
     }
 
     return res.status(503).json({

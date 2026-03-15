@@ -3,6 +3,7 @@ const fetch = require('node-fetch');
 let cachedProxies = [];
 let lastProxyUpdate = null;
 let isUpdatingProxies = false;
+let proxyUpdateIntervalId = null;
 
 /**
  * Obtiene proxies desde la API de ProxyScrape
@@ -92,6 +93,10 @@ function getProxyStatus() {
  * Inicia la actualización periódica de proxies
  */
 function startPeriodicProxyUpdate() {
+  if (proxyUpdateIntervalId) {
+    return;
+  }
+
   const intervalMs = parseInt(process.env.PROXY_UPDATE_INTERVAL) || 3600000; // 1 hora por defecto
 
   console.log(`🕐 Actualizaciones de proxies cada ${intervalMs / 60000} minutos`);
@@ -100,9 +105,13 @@ function startPeriodicProxyUpdate() {
   fetchProxiesFromAPI();
 
   // Luego periódicamente
-  setInterval(() => {
+  proxyUpdateIntervalId = setInterval(() => {
     fetchProxiesFromAPI();
   }, intervalMs);
+
+  if (typeof proxyUpdateIntervalId.unref === 'function') {
+    proxyUpdateIntervalId.unref();
+  }
 }
 
 module.exports = {
