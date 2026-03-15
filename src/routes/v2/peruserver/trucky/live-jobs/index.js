@@ -1,9 +1,15 @@
 const { Router } = require('express');
 const axios = require('axios');
+const {
+  startPeriodicProxyUpdate,
+  getRandomProxy,
+  getCachedProxies,
+} = require('../../../../../utils/proxy-manager');
 
 const router = Router();
 
 const TRUCKY_BASE_URL = 'https://e.truckyapp.com/api/v1/company';
+const PERUSERVER_COMPANIES_URL = 'https://peruserver.pe/wp-json/psv/v1/companies';
 const TRUCKY_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
   Accept: 'application/json, text/plain, */*',
@@ -17,9 +23,14 @@ const DEFAULT_DAYS = 3;
 const MAX_JOBS = 300;
 const DEFAULT_PER_PAGE = 25;
 const MAX_PER_PAGE = 100;
-const COMPANY_BATCH_SIZE = 6;
+const DEFAULT_COMPANY_BATCH_SIZE = Math.min(
+  6,
+  Math.max(1, Number.parseInt(process.env.TRUCKY_CONCURRENCY || '4', 10) || 4)
+);
 const SNAPSHOT_TTL_MS = 45 * 1000;
 const SNAPSHOT_DB_MAX_AGE_MS = 90 * 1000;
+const TRUCKY_MAX_RETRIES = Math.max(1, Number.parseInt(process.env.TRUCKY_MAX_RETRIES || '3', 10) || 3);
+const TRUCKY_RETRY_BASE_MS = Math.max(200, Number.parseInt(process.env.TRUCKY_RETRY_BASE_MS || '700', 10) || 700);
 
 const snapshotCache = new Map();
 
@@ -29,6 +40,8 @@ const SUPABASE_ANON_KEY =
   process.env.SUPABASE_ANON_KEY ||
   process.env.SUPABASE_SERVICE_ROLE_KEY ||
   '';
+
+startPeriodicProxyUpdate();
 
 const sanitizeCompanyName = (name) => {
   if (typeof name !== 'string') return '';
@@ -112,29 +125,115 @@ const parseCsvNumberSet = (rawValue) => {
   );
 };
 
-const getSnapshotCacheKey = (days) => `days-${days}`;
+const parseProxyForAxios = (rawProxy) => {
+  if (!rawProxy) return null;
 
-const getSnapshotFromMemory = (days) => {
-  const entry = snapshotCache.get(getSnapshotCacheKey(days));
+  try {
+    const withProtocol = /^(http|https):\/\//i.test(rawProxy)
+      ? rawProxy
+      : `http://${rawProxy}`;
+    const url = new URL(withProtocol);
+
+    return {
+      protocol: url.protocol.replace(':', ''),
+      host: url.hostname,
+      port: Number(url.port || (url.protocol === 'https:' ? 443 : 80)),
+      auth: url.username
+        ? {
+            username: decodeURIComponent(url.username),
+            password: decodeURIComponent(url.password || ''),
+          }
+        : undefined,
+    };
+  } catch (error) {
+    return null;
+  }
+};
+
+const getTruckyProxyCandidates = (query) => {
+  const queryProxyRaw = query && query.truckyProxy ? String(query.truckyProxy).trim() : '';
+  const queryProxyListRaw = query && query.truckyProxyList ? String(query.truckyProxyList).trim() : '';
+
+  const queryProxies = queryProxyListRaw
+    ? queryProxyListRaw.split(',').map((item) => item.trim()).filter(Boolean)
+    : [];
+
+  if (queryProxyRaw) {
+    queryProxies.unshift(queryProxyRaw);
+  }
+
+  return queryProxies.filter(Boolean);
+};
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const isRetryableTruckyStatus = (status) => [403, 429, 500, 502, 503, 504].includes(status);
+
+const truckyRequestWithRetry = async ({ url, params, timeout = 12000, proxyCandidates = [], useProxyPool = true }) => {
+  let lastError = null;
+
+  for (let attempt = 0; attempt < TRUCKY_MAX_RETRIES; attempt += 1) {
+    const poolProxy = useProxyPool && proxyCandidates.length === 0 ? getRandomProxy() : null;
+    const proxyRaw = proxyCandidates.length > 0
+      ? proxyCandidates[attempt % proxyCandidates.length]
+      : poolProxy;
+    const proxy = parseProxyForAxios(proxyRaw);
+
+    try {
+      const response = await axios.get(url, {
+        params,
+        headers: TRUCKY_HEADERS,
+        timeout,
+        proxy: proxy || undefined,
+      });
+
+      return response;
+    } catch (error) {
+      lastError = error;
+      const status = Number(error && error.response && error.response.status);
+      const shouldRetry = isRetryableTruckyStatus(status);
+
+      if (!shouldRetry || attempt === TRUCKY_MAX_RETRIES - 1) {
+        throw error;
+      }
+
+      const waitMs = TRUCKY_RETRY_BASE_MS * (attempt + 1) + Math.floor(Math.random() * 250);
+      await sleep(waitMs);
+    }
+  }
+
+  throw lastError || new Error('Error desconocido consultando Trucky');
+};
+
+const normalizeCompaniesSource = (rawSource) => {
+  const source = String(rawSource || 'auto').trim().toLowerCase();
+  if (['supabase', 'wordpress', 'auto'].includes(source)) return source;
+  return 'auto';
+};
+
+const getSnapshotCacheKey = ({ days, companiesSource }) => `days-${days}-source-${companiesSource}`;
+
+const getSnapshotFromMemory = ({ days, companiesSource }) => {
+  const entry = snapshotCache.get(getSnapshotCacheKey({ days, companiesSource }));
   if (!entry) return null;
   if (Date.now() >= entry.expiresAt) return null;
   return entry.payload;
 };
 
-const saveSnapshotInMemory = (days, payload) => {
-  snapshotCache.set(getSnapshotCacheKey(days), {
+const saveSnapshotInMemory = ({ days, companiesSource }, payload) => {
+  snapshotCache.set(getSnapshotCacheKey({ days, companiesSource }), {
     payload,
     expiresAt: Date.now() + SNAPSHOT_TTL_MS,
   });
 };
 
-const getSnapshotFromSupabase = async (days) => {
+const getSnapshotFromSupabase = async ({ days, companiesSource }) => {
   const env = getSupabaseCacheEnv();
   const readKey = (env && (env.anonKey || env.key)) || '';
   if (!env || !readKey) return null;
 
   try {
-    const cacheKey = getSnapshotCacheKey(days);
+    const cacheKey = getSnapshotCacheKey({ days, companiesSource });
     const response = await axios.get(
       `${env.url}/rest/v1/trucky_live_jobs_snapshots?select=payload,updated_at&cache_key=eq.${encodeURIComponent(cacheKey)}&limit=1`,
       {
@@ -165,7 +264,7 @@ const getSnapshotFromSupabase = async (days) => {
   }
 };
 
-const saveSnapshotInSupabase = async (days, payload) => {
+const saveSnapshotInSupabase = async ({ days, companiesSource }, payload) => {
   const env = getSupabaseCacheEnv();
   if (!env || !env.serviceRoleKey) return;
 
@@ -173,7 +272,7 @@ const saveSnapshotInSupabase = async (days, payload) => {
     await axios.post(
       `${env.url}/rest/v1/trucky_live_jobs_snapshots`,
       [{
-        cache_key: getSnapshotCacheKey(days),
+        cache_key: getSnapshotCacheKey({ days, companiesSource }),
         payload,
         updated_at: new Date().toISOString(),
       }],
@@ -473,7 +572,7 @@ const upsertUnresolvedPoints = async (points) => {
   }
 };
 
-const fetchRegisteredCompanies = async () => {
+const fetchRegisteredCompaniesFromSupabase = async () => {
   if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
     return [];
   }
@@ -503,8 +602,71 @@ const fetchRegisteredCompanies = async () => {
   }
 };
 
-const fetchCompanyJobs = async (company, cutoffMs) => {
-  const response = await axios.get(`${TRUCKY_BASE_URL}/${company.id}/jobs`, {
+const fetchRegisteredCompaniesFromWordPress = async () => {
+  try {
+    const response = await axios.get(PERUSERVER_COMPANIES_URL, {
+      timeout: 15000,
+    });
+
+    const companies = Array.isArray(response.data) ? response.data : [];
+
+    return companies
+      .map((company) => {
+        if (Number.isFinite(company)) {
+          return {
+            id: Number(company),
+            name: `Empresa ${company}`,
+          };
+        }
+
+        const id = Number(company && (company.id || company.company_id || company.empresaId));
+        if (!Number.isFinite(id) || id <= 0) return null;
+
+        return {
+          id,
+          name: sanitizeCompanyName(company.name || company.company_name) || `Empresa ${id}`,
+        };
+      })
+      .filter((row) => row && Number.isFinite(row.id) && row.id > 0);
+  } catch (error) {
+    return [];
+  }
+};
+
+const fetchRegisteredCompanies = async (companiesSource = 'auto') => {
+  const source = normalizeCompaniesSource(companiesSource);
+
+  if (source === 'supabase') {
+    return {
+      companies: await fetchRegisteredCompaniesFromSupabase(),
+      sourceUsed: 'supabase',
+    };
+  }
+
+  if (source === 'wordpress') {
+    return {
+      companies: await fetchRegisteredCompaniesFromWordPress(),
+      sourceUsed: 'wordpress',
+    };
+  }
+
+  const supabaseCompanies = await fetchRegisteredCompaniesFromSupabase();
+  if (supabaseCompanies.length > 0) {
+    return {
+      companies: supabaseCompanies,
+      sourceUsed: 'supabase',
+    };
+  }
+
+  return {
+    companies: await fetchRegisteredCompaniesFromWordPress(),
+    sourceUsed: 'wordpress',
+  };
+};
+
+const fetchCompanyJobs = async (company, cutoffMs, proxyCandidates, useProxyPool) => {
+  const response = await truckyRequestWithRetry({
+    url: `${TRUCKY_BASE_URL}/${company.id}/jobs`,
     params: {
       top: 0,
       page: 1,
@@ -513,8 +675,9 @@ const fetchCompanyJobs = async (company, cutoffMs) => {
       sortingField: 'updated_at',
       sortingDirection: 'desc',
     },
-    headers: TRUCKY_HEADERS,
     timeout: 12000,
+    proxyCandidates,
+    useProxyPool,
   });
 
   const payload = response.data || {};
@@ -527,34 +690,26 @@ const fetchCompanyJobs = async (company, cutoffMs) => {
     .filter((job) => job.id > 0);
 };
 
-const buildCoreSnapshot = async (days) => {
-  const cutoffMs = Date.now() - days * 24 * 60 * 60 * 1000;
-  const payload = {
-    fetchedAt: new Date().toISOString(),
-    days,
-    companiesProcessed: 0,
-    jobs: [],
-    errors: [],
-  };
+const collectJobsFromCompanies = async (companies, cutoffMs, options = {}) => {
+  const batchSize = Math.max(1, Number.parseInt(String(options.companyBatchSize || DEFAULT_COMPANY_BATCH_SIZE), 10) || DEFAULT_COMPANY_BATCH_SIZE);
+  const proxyCandidates = Array.isArray(options.proxyCandidates) ? options.proxyCandidates : [];
+  const useProxyPool = options.useProxyPool !== false;
+  const jobs = [];
+  const errors = [];
+  let forbiddenCount = 0;
 
-  const companies = await fetchRegisteredCompanies();
-  payload.companiesProcessed = companies.length;
-
-  if (!companies.length) {
-    return payload;
-  }
-
-  const allJobs = [];
-
-  for (let index = 0; index < companies.length; index += COMPANY_BATCH_SIZE) {
-    const chunk = companies.slice(index, index + COMPANY_BATCH_SIZE);
+  for (let index = 0; index < companies.length; index += batchSize) {
+    const chunk = companies.slice(index, index + batchSize);
 
     const results = await Promise.all(
       chunk.map(async (company) => {
         try {
-          const jobs = await fetchCompanyJobs(company, cutoffMs);
-          return { companyId: company.id, jobs, error: null };
+          const companyJobs = await fetchCompanyJobs(company, cutoffMs, proxyCandidates, useProxyPool);
+          return { companyId: company.id, jobs: companyJobs, error: null };
         } catch (error) {
+          const statusCode = Number(error && error.response && error.response.status);
+          if (statusCode === 403) forbiddenCount += 1;
+
           const message = error instanceof Error ? error.message : 'Error desconocido';
           return { companyId: company.id, jobs: [], error: message };
         }
@@ -562,37 +717,110 @@ const buildCoreSnapshot = async (days) => {
     );
 
     for (const result of results) {
-      allJobs.push(...result.jobs);
+      jobs.push(...result.jobs);
       if (result.error) {
-        payload.errors.push({ companyId: result.companyId, message: result.error });
+        errors.push({ companyId: result.companyId, message: result.error });
       }
     }
   }
 
-  payload.jobs = allJobs
+  return {
+    jobs,
+    errors,
+    forbiddenCount,
+  };
+};
+
+const buildCoreSnapshot = async ({ days, companiesSource, companyBatchSize, proxyCandidates, useProxyPool }) => {
+  const cutoffMs = Date.now() - days * 24 * 60 * 60 * 1000;
+  const payload = {
+    fetchedAt: new Date().toISOString(),
+    days,
+    companiesSourceRequested: normalizeCompaniesSource(companiesSource),
+    companiesSourceUsed: 'unknown',
+    companiesProcessed: 0,
+    jobs: [],
+    errors: [],
+  };
+
+  const { companies, sourceUsed } = await fetchRegisteredCompanies(companiesSource);
+  payload.companiesSourceUsed = sourceUsed;
+  payload.companiesProcessed = companies.length;
+
+  if (!companies.length) {
+    return payload;
+  }
+
+  const initialResult = await collectJobsFromCompanies(companies, cutoffMs, {
+    companyBatchSize,
+    proxyCandidates,
+    useProxyPool,
+  });
+  let jobs = initialResult.jobs;
+  let errors = initialResult.errors;
+
+  const forbiddenRatio = companies.length > 0
+    ? initialResult.forbiddenCount / companies.length
+    : 0;
+
+  // Si en modo auto Supabase devuelve muchos 403, reintentar con WordPress en la misma petición.
+  if (
+    payload.companiesSourceRequested === 'auto' &&
+    sourceUsed === 'supabase' &&
+    jobs.length === 0 &&
+    forbiddenRatio >= 0.7
+  ) {
+    const wordpressCompanies = await fetchRegisteredCompaniesFromWordPress();
+
+    if (wordpressCompanies.length > 0) {
+      const fallbackResult = await collectJobsFromCompanies(wordpressCompanies, cutoffMs, {
+        companyBatchSize,
+        proxyCandidates,
+        useProxyPool,
+      });
+      payload.companiesProcessed = wordpressCompanies.length;
+      payload.companiesSourceUsed = 'wordpress';
+      jobs = fallbackResult.jobs;
+      errors = fallbackResult.errors;
+    }
+  }
+
+  payload.jobs = jobs
     .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
     .slice(0, MAX_JOBS);
+  payload.errors = errors;
 
   return payload;
 };
 
-const getCoreSnapshot = async (days, useDbCache) => {
-  const memorySnapshot = getSnapshotFromMemory(days);
+const getCoreSnapshot = async ({ days, useDbCache, companiesSource, companyBatchSize, proxyCandidates, useProxyPool }) => {
+  const cacheContext = {
+    days,
+    companiesSource: normalizeCompaniesSource(companiesSource),
+  };
+
+  const memorySnapshot = getSnapshotFromMemory(cacheContext);
   if (memorySnapshot) return memorySnapshot;
 
   if (useDbCache) {
-    const dbSnapshot = await getSnapshotFromSupabase(days);
+    const dbSnapshot = await getSnapshotFromSupabase(cacheContext);
     if (dbSnapshot) {
-      saveSnapshotInMemory(days, dbSnapshot);
+      saveSnapshotInMemory(cacheContext, dbSnapshot);
       return dbSnapshot;
     }
   }
 
-  const freshSnapshot = await buildCoreSnapshot(days);
-  saveSnapshotInMemory(days, freshSnapshot);
+  const freshSnapshot = await buildCoreSnapshot({
+    days,
+    companiesSource: cacheContext.companiesSource,
+    companyBatchSize,
+    proxyCandidates,
+    useProxyPool,
+  });
+  saveSnapshotInMemory(cacheContext, freshSnapshot);
 
   if (useDbCache) {
-    await saveSnapshotInSupabase(days, freshSnapshot);
+    await saveSnapshotInSupabase(cacheContext, freshSnapshot);
   }
 
   return freshSnapshot;
@@ -756,6 +984,9 @@ const parseRequestOptions = (query) => {
     days,
     page,
     perPage,
+    companiesSource: normalizeCompaniesSource(query.companiesSource),
+    companyBatchSize: parsePositiveInt(query.companyBatchSize, DEFAULT_COMPANY_BATCH_SIZE, 1, 10),
+    disableProxy: parseBoolean(query.disableProxy, false),
     fromJobId: query.fromJobId != null ? parsePositiveInt(query.fromJobId, null, 1, Number.MAX_SAFE_INTEGER) : null,
     compactJobs: parseBoolean(query.compactJobs, true),
     includePoints: parseBoolean(query.includePoints, false),
@@ -774,7 +1005,17 @@ const parseRequestOptions = (query) => {
 router.get('/', async (req, res) => {
   try {
     const options = parseRequestOptions(req.query);
-    const snapshot = await getCoreSnapshot(options.days, options.useDbCache);
+    const proxyCandidates = options.disableProxy ? [] : getTruckyProxyCandidates(req.query);
+    const useProxyPool = !options.disableProxy;
+    const proxyPoolSize = useProxyPool ? getCachedProxies().length : 0;
+    const snapshot = await getCoreSnapshot({
+      days: options.days,
+      useDbCache: options.useDbCache,
+      companiesSource: options.companiesSource,
+      companyBatchSize: options.companyBatchSize,
+      proxyCandidates,
+      useProxyPool,
+    });
     const paginated = options.fromJobId != null
       ? paginateJobsFromId(snapshot.jobs, options.fromJobId, options.perPage)
       : paginateJobs(snapshot.jobs, options.page, options.perPage);
@@ -804,6 +1045,14 @@ router.get('/', async (req, res) => {
     const responsePayload = {
       fetchedAt: snapshot.fetchedAt,
       days: options.days,
+      companiesSourceRequested: options.companiesSource,
+      companiesSourceUsed: snapshot.companiesSourceUsed || options.companiesSource,
+      truckyRequestConfig: {
+        companyBatchSize: options.companyBatchSize,
+        explicitProxiesCount: proxyCandidates.length,
+        useProxyPool,
+        proxyPoolSize,
+      },
       companiesProcessed: snapshot.companiesProcessed,
       pagination: {
         mode: paginated.mode,
@@ -838,12 +1087,30 @@ router.get('/', async (req, res) => {
 router.get('/summary', async (req, res) => {
   try {
     const options = parseRequestOptions(req.query);
-    const snapshot = await getCoreSnapshot(options.days, options.useDbCache);
+    const proxyCandidates = options.disableProxy ? [] : getTruckyProxyCandidates(req.query);
+    const useProxyPool = !options.disableProxy;
+    const proxyPoolSize = useProxyPool ? getCachedProxies().length : 0;
+    const snapshot = await getCoreSnapshot({
+      days: options.days,
+      useDbCache: options.useDbCache,
+      companiesSource: options.companiesSource,
+      companyBatchSize: options.companyBatchSize,
+      proxyCandidates,
+      useProxyPool,
+    });
 
     res.set('Cache-Control', 'public, s-maxage=30, stale-while-revalidate=15');
     return res.json({
       fetchedAt: snapshot.fetchedAt,
       days: options.days,
+      companiesSourceRequested: options.companiesSource,
+      companiesSourceUsed: snapshot.companiesSourceUsed || options.companiesSource,
+      truckyRequestConfig: {
+        companyBatchSize: options.companyBatchSize,
+        explicitProxiesCount: proxyCandidates.length,
+        useProxyPool,
+        proxyPoolSize,
+      },
       companiesProcessed: snapshot.companiesProcessed,
       totalJobs: snapshot.jobs.length,
       errorsCount: snapshot.errors.length,
@@ -857,7 +1124,17 @@ router.get('/summary', async (req, res) => {
 router.get('/jobs', async (req, res) => {
   try {
     const options = parseRequestOptions(req.query);
-    const snapshot = await getCoreSnapshot(options.days, options.useDbCache);
+    const proxyCandidates = options.disableProxy ? [] : getTruckyProxyCandidates(req.query);
+    const useProxyPool = !options.disableProxy;
+    const proxyPoolSize = useProxyPool ? getCachedProxies().length : 0;
+    const snapshot = await getCoreSnapshot({
+      days: options.days,
+      useDbCache: options.useDbCache,
+      companiesSource: options.companiesSource,
+      companyBatchSize: options.companyBatchSize,
+      proxyCandidates,
+      useProxyPool,
+    });
     const paginated = options.fromJobId != null
       ? paginateJobsFromId(snapshot.jobs, options.fromJobId, options.perPage)
       : paginateJobs(snapshot.jobs, options.page, options.perPage);
@@ -866,6 +1143,14 @@ router.get('/jobs', async (req, res) => {
     return res.json({
       fetchedAt: snapshot.fetchedAt,
       days: options.days,
+      companiesSourceRequested: options.companiesSource,
+      companiesSourceUsed: snapshot.companiesSourceUsed || options.companiesSource,
+      truckyRequestConfig: {
+        companyBatchSize: options.companyBatchSize,
+        explicitProxiesCount: proxyCandidates.length,
+        useProxyPool,
+        proxyPoolSize,
+      },
       pagination: {
         mode: paginated.mode,
         page: paginated.page,
@@ -887,7 +1172,17 @@ router.get('/jobs', async (req, res) => {
 router.get('/geo', async (req, res) => {
   try {
     const options = parseRequestOptions(req.query);
-    const snapshot = await getCoreSnapshot(options.days, options.useDbCache);
+    const proxyCandidates = options.disableProxy ? [] : getTruckyProxyCandidates(req.query);
+    const useProxyPool = !options.disableProxy;
+    const proxyPoolSize = useProxyPool ? getCachedProxies().length : 0;
+    const snapshot = await getCoreSnapshot({
+      days: options.days,
+      useDbCache: options.useDbCache,
+      companiesSource: options.companiesSource,
+      companyBatchSize: options.companyBatchSize,
+      proxyCandidates,
+      useProxyPool,
+    });
     const paginated = options.fromJobId != null
       ? paginateJobsFromId(snapshot.jobs, options.fromJobId, options.perPage)
       : paginateJobs(snapshot.jobs, options.page, options.perPage);
@@ -915,6 +1210,14 @@ router.get('/geo', async (req, res) => {
     return res.json({
       fetchedAt: snapshot.fetchedAt,
       days: options.days,
+      companiesSourceRequested: options.companiesSource,
+      companiesSourceUsed: snapshot.companiesSourceUsed || options.companiesSource,
+      truckyRequestConfig: {
+        companyBatchSize: options.companyBatchSize,
+        explicitProxiesCount: proxyCandidates.length,
+        useProxyPool,
+        proxyPoolSize,
+      },
       pagination: {
         mode: paginated.mode,
         page: paginated.page,

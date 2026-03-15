@@ -1,5 +1,6 @@
 const fetch = require('node-fetch');
 const { load } = require('cheerio');
+const { HttpsProxyAgent } = require('https-proxy-agent');
 const { getRandomProxy, getCachedProxies } = require('./proxy-manager');
 const { isValidCoord, normalizeLocation, geocodeApprox } = require('./geocode');
 
@@ -102,7 +103,10 @@ async function parseBomberos24HorasReal() {
         }
 
         if (proxy) {
-          fetchOptions.agent = new (require('http')).Agent({ httpAgent: proxy });
+          const proxyUrl = /^(http|https):\/\//i.test(proxy)
+            ? proxy
+            : `http://${proxy}`;
+          fetchOptions.agent = new HttpsProxyAgent(proxyUrl);
           attempText += ` (proxy: ${proxy.substring(0, 40)}...)`;
         }
       } else if (attempt === 1) {
