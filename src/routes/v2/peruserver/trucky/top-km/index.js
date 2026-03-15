@@ -5,6 +5,12 @@ const router = Router();
 
 const TRUCKY_BASE_URL = 'https://e.truckyapp.com/api/v1/company';
 const PERUSERVER_COMPANIES_URL = 'https://peruserver.pe/wp-json/psv/v1/companies';
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || '';
+const SUPABASE_ANON_KEY =
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+  process.env.SUPABASE_ANON_KEY ||
+  process.env.SUPABASE_SERVICE_ROLE_KEY ||
+  '';
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
 const CACHE_TTL_CURRENT_MONTH_MS = 30 * 60 * 1000; // 30 minutos
@@ -84,21 +90,40 @@ const parseLimit = (rawLimit) => {
 
 const refreshCompaniesCache = async () => {
   try {
-    const response = await axios.get(PERUSERVER_COMPANIES_URL, {
-      timeout: 15000,
-    });
+    let companyIds = [];
 
-    const companies = Array.isArray(response.data) ? response.data : [];
-    
-    // Extraer los IDs de las empresas
-    const companyIds = companies
-      .map((company) => {
-        // Si es un número directamente, devolverlo
-        if (Number.isFinite(company)) return company;
-        // Si es un objeto, intentar extraer el ID
-        return company.id || company.company_id || company.empresaId;
-      })
-      .filter((id) => Number.isFinite(id));
+    if (SUPABASE_URL && SUPABASE_ANON_KEY) {
+      const supabaseResponse = await axios.get(
+        `${SUPABASE_URL.replace(/\/+$/, '')}/rest/v1/trucky_companies?select=company_id&order=company_id.asc`,
+        {
+          headers: {
+            apikey: SUPABASE_ANON_KEY,
+            Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+          },
+          timeout: 15000,
+        }
+      );
+
+      const rows = Array.isArray(supabaseResponse.data) ? supabaseResponse.data : [];
+      companyIds = rows
+        .map((row) => Number(row.company_id))
+        .filter((id) => Number.isFinite(id) && id > 0);
+    }
+
+    // Fallback de seguridad si Supabase no está configurado o devuelve vacío.
+    if (!companyIds.length) {
+      const response = await axios.get(PERUSERVER_COMPANIES_URL, {
+        timeout: 15000,
+      });
+
+      const companies = Array.isArray(response.data) ? response.data : [];
+      companyIds = companies
+        .map((company) => {
+          if (Number.isFinite(company)) return company;
+          return company.id || company.company_id || company.empresaId;
+        })
+        .filter((id) => Number.isFinite(id));
+    }
 
     companiesCache.companyIds = companyIds;
     companiesCache.nextRefreshAt = Date.now() + COMPANIES_CACHE_TTL_MS;
