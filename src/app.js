@@ -11,6 +11,8 @@ const errorHandler = require(join(__dirname, 'utils', 'api', 'error-handler'));
 
 const app = express();
 
+app.use(express.json()); // <--- ¡Esto es obligatorio para JSON!
+
 const port = process.env.PORT || 3000;
 
 global.__basedir = __dirname;

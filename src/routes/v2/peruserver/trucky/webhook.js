@@ -359,10 +359,10 @@ router.post("/", async (req, res) => {
     const jobData = {
       job_id: jobId,
       company_id: req.headers["x-trucky-company-id"],
-      driver_id: req.body.data.driver.id,
-      event_type: req.body.type,
-      profile_id: req.body.data.in_game_profile_id,
-      vehicle_id: req.body.data.vehicle_id,
+      driver_id: req.body.data.driver?.id || null,
+      event_type: req.body.event,
+      profile_id: req.body.data.in_game_profile_id || null,
+      vehicle_id: req.body.data.vehicle_in_game_id,
       vehicle_brand_id: req.body.data.vehicle_in_game_brand_id,
       market: req.body.data.market,
       status: req.body.data.status,
@@ -392,7 +392,7 @@ router.post("/", async (req, res) => {
       deleted_by_user_id: req.body.data.deleted_by_user_id,
       points: req.body.data.points,
       total_damage: req.body.data.total_damage,
-      events: req.body.data.events,
+      events: req.body.data.events || [],
       raw: JSON.stringify(req.body),
       updated_at: new Date(),
     };
@@ -402,6 +402,7 @@ router.post("/", async (req, res) => {
       headers: {
         "Content-Type": "application/json",
         apikey: SUPABASE_SERVICE_ROLE_KEY,
+        Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
       },
     });
     const jobExists = await jobRes.json();
@@ -413,6 +414,7 @@ router.post("/", async (req, res) => {
         headers: {
           "Content-Type": "application/json",
           apikey: SUPABASE_SERVICE_ROLE_KEY,
+          Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
         },
         body: JSON.stringify(jobData),
       });
@@ -429,11 +431,13 @@ router.post("/", async (req, res) => {
         headers: {
           "Content-Type": "application/json",
           apikey: SUPABASE_SERVICE_ROLE_KEY,
+          Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
         },
         body: JSON.stringify(jobData),
       });
       if (!insertRes.ok) {
         const error = await insertRes.text();
+        console.error("Failed to insert job data:", error);
         return res.status(500).json({ error: "Failed to insert", details: error });
       }
       return res.status(200).json({ ok: true, inserted: true });
