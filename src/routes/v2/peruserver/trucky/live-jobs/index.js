@@ -1242,16 +1242,13 @@ router.get('/', async (req, res) => {
 router.get('/summary', async (req, res) => {
   try {
     const options = parseRequestOptions(req.query);
-    const proxyCandidates = options.disableProxy ? [] : getTruckyProxyCandidates(req.query);
-    const useProxyPool = !options.disableProxy;
-    const proxyPoolSize = useProxyPool ? getCachedProxies().length : 0;
     const snapshot = await getCoreSnapshot({
       days: options.days,
       useDbCache: options.useDbCache,
       companiesSource: options.companiesSource,
       companyBatchSize: options.companyBatchSize,
-      proxyCandidates,
-      useProxyPool,
+      proxyCandidates: [],
+      useProxyPool: false,
     });
 
     res.set('Cache-Control', 'public, s-maxage=30, stale-while-revalidate=15');
@@ -1262,9 +1259,9 @@ router.get('/summary', async (req, res) => {
       companiesSourceUsed: snapshot.companiesSourceUsed || options.companiesSource,
       truckyRequestConfig: {
         companyBatchSize: options.companyBatchSize,
-        explicitProxiesCount: proxyCandidates.length,
-        useProxyPool,
-        proxyPoolSize,
+        explicitProxiesCount: 0,
+        useProxyPool: false,
+        proxyPoolSize: 0,
       },
       companiesProcessed: snapshot.companiesProcessed,
       totalJobs: snapshot.jobs.length,
@@ -1279,16 +1276,13 @@ router.get('/summary', async (req, res) => {
 router.get('/jobs', async (req, res) => {
   try {
     const options = parseRequestOptions(req.query);
-    const proxyCandidates = options.disableProxy ? [] : getTruckyProxyCandidates(req.query);
-    const useProxyPool = !options.disableProxy;
-    const proxyPoolSize = useProxyPool ? getCachedProxies().length : 0;
     const snapshot = await getCoreSnapshot({
       days: options.days,
       useDbCache: options.useDbCache,
       companiesSource: options.companiesSource,
       companyBatchSize: options.companyBatchSize,
-      proxyCandidates,
-      useProxyPool,
+      proxyCandidates: [],
+      useProxyPool: false,
     });
     const paginated = options.fromJobId != null
       ? paginateJobsFromId(snapshot.jobs, options.fromJobId, options.perPage)
@@ -1302,9 +1296,9 @@ router.get('/jobs', async (req, res) => {
       companiesSourceUsed: snapshot.companiesSourceUsed || options.companiesSource,
       truckyRequestConfig: {
         companyBatchSize: options.companyBatchSize,
-        explicitProxiesCount: proxyCandidates.length,
-        useProxyPool,
-        proxyPoolSize,
+        explicitProxiesCount: 0,
+        useProxyPool: false,
+        proxyPoolSize: 0,
       },
       pagination: {
         mode: paginated.mode,
@@ -1327,16 +1321,13 @@ router.get('/jobs', async (req, res) => {
 router.get('/geo', async (req, res) => {
   try {
     const options = parseRequestOptions(req.query);
-    const proxyCandidates = options.disableProxy ? [] : getTruckyProxyCandidates(req.query);
-    const useProxyPool = !options.disableProxy;
-    const proxyPoolSize = useProxyPool ? getCachedProxies().length : 0;
     const snapshot = await getCoreSnapshot({
       days: options.days,
       useDbCache: options.useDbCache,
       companiesSource: options.companiesSource,
       companyBatchSize: options.companyBatchSize,
-      proxyCandidates,
-      useProxyPool,
+      proxyCandidates: [],
+      useProxyPool: false,
     });
     const paginated = options.fromJobId != null
       ? paginateJobsFromId(snapshot.jobs, options.fromJobId, options.perPage)
@@ -1369,9 +1360,9 @@ router.get('/geo', async (req, res) => {
       companiesSourceUsed: snapshot.companiesSourceUsed || options.companiesSource,
       truckyRequestConfig: {
         companyBatchSize: options.companyBatchSize,
-        explicitProxiesCount: proxyCandidates.length,
-        useProxyPool,
-        proxyPoolSize,
+        explicitProxiesCount: 0,
+        useProxyPool: false,
+        proxyPoolSize: 0,
       },
       pagination: {
         mode: paginated.mode,
@@ -1382,6 +1373,7 @@ router.get('/geo', async (req, res) => {
         totalJobs: paginated.totalJobs,
         totalPages: paginated.totalPages,
       },
+      jobs: options.compactJobs ? paginated.items.map(toCompactJob) : paginated.items,
       ...geoPayload,
     });
   } catch (error) {
