@@ -206,7 +206,8 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const isRetryableTruckyStatus = (status) => [403, 429, 500, 502, 503, 504].includes(status);
 
-const truckyRequestWithRetry = async ({ url, params, timeout = 12000, proxyCandidates = [], useProxyPool = true }) => {
+// Permite pasar apiKey para x-access-token y loguea cada intento
+const truckyRequestWithRetry = async ({ url, params, timeout = 12000, proxyCandidates = [], useProxyPool = true, apiKey = null, companyId = null }) => {
   let lastError = null;
 
   for (let attempt = 0; attempt < TRUCKY_MAX_RETRIES; attempt += 1) {
@@ -216,19 +217,26 @@ const truckyRequestWithRetry = async ({ url, params, timeout = 12000, proxyCandi
       : poolProxy;
     const proxy = parseProxyForAxios(proxyRaw);
 
+    // Headers base + x-access-token si hay apiKey
+    const headers = { ...TRUCKY_HEADERS };
+    if (apiKey) headers['x-access-token'] = apiKey;
+
+    const logPrefix = `[Trucky][${companyId || 'no-id'}][try ${attempt + 1}]`;
     try {
+      console.log(`${logPrefix} GET ${url} ${apiKey ? '[api_key]' : ''}`);
       const response = await axios.get(url, {
         params,
-        headers: TRUCKY_HEADERS,
+        headers,
         timeout,
         proxy: proxy || undefined,
       });
-
+      console.log(`${logPrefix} OK (${response.status})`);
       return response;
     } catch (error) {
       lastError = error;
       const status = Number(error && error.response && error.response.status);
       const shouldRetry = isRetryableTruckyStatus(status);
+      console.warn(`${logPrefix} FAIL (${status || error.code || error.message})`);
 
       if (!shouldRetry || attempt === TRUCKY_MAX_RETRIES - 1) {
         throw error;

@@ -218,13 +218,14 @@ const truckyRequestWithRetry = async ({ url, params, timeout = 15000, proxyCandi
   throw lastError || new Error('Error desconocido consultando Trucky');
 };
 
+// Ahora retorna [{company_id, api_key}] en vez de solo ids
 const refreshCompaniesCache = async () => {
   try {
-    let companyIds = [];
+    let companies = [];
 
     if (SUPABASE_URL && SUPABASE_ANON_KEY) {
       const supabaseResponse = await axios.get(
-        `${SUPABASE_URL.replace(/\/+$/, '')}/rest/v1/trucky_companies?select=company_id&order=company_id.asc`,
+        `${SUPABASE_URL.replace(/\/+$/, '')}/rest/v1/trucky_companies?select=company_id,api_key&order=company_id.asc`,
         {
           headers: {
             apikey: SUPABASE_ANON_KEY,
@@ -235,31 +236,37 @@ const refreshCompaniesCache = async () => {
       );
 
       const rows = Array.isArray(supabaseResponse.data) ? supabaseResponse.data : [];
-      companyIds = rows
-        .map((row) => Number(row.company_id))
-        .filter((id) => Number.isFinite(id) && id > 0);
+      companies = rows
+        .map((row) => ({
+          company_id: Number(row.company_id),
+          api_key: typeof row.api_key === 'string' && row.api_key.length > 0 ? row.api_key : null,
+        }))
+        .filter((row) => Number.isFinite(row.company_id) && row.company_id > 0);
     }
 
     // Fallback de seguridad si Supabase no está configurado o devuelve vacío.
-    if (!companyIds.length) {
+    if (!companies.length) {
       const response = await axios.get(PERUSERVER_COMPANIES_URL, {
         timeout: 15000,
       });
 
-      const companies = Array.isArray(response.data) ? response.data : [];
-      companyIds = companies
+      const arr = Array.isArray(response.data) ? response.data : [];
+      companies = arr
         .map((company) => {
-          if (Number.isFinite(company)) return company;
-          return company.id || company.company_id || company.empresaId;
+          if (Number.isFinite(company)) return { company_id: company, api_key: null };
+          return {
+            company_id: company.id || company.company_id || company.empresaId,
+            api_key: null,
+          };
         })
-        .filter((id) => Number.isFinite(id));
+        .filter((row) => Number.isFinite(row.company_id));
     }
 
-    companiesCache.companyIds = companyIds;
+    companiesCache.companyIds = companies;
     companiesCache.nextRefreshAt = Date.now() + COMPANIES_CACHE_TTL_MS;
     companiesCache.lastError = null;
 
-    return companyIds;
+    return companies;
   } catch (error) {
     companiesCache.lastError = {
       message: error.message || 'Error desconocido al obtener empresas',
@@ -274,6 +281,7 @@ const refreshCompaniesCache = async () => {
   }
 };
 
+// Devuelve [{company_id, api_key}]
 const getCompanies = async () => {
   const mustRefresh = Date.now() >= companiesCache.nextRefreshAt;
 
