@@ -11,6 +11,7 @@ router.post("/", async (req, res) => {
   try {
     // Check if content-type is application/json
     if (req.headers["content-type"] !== "application/json") {
+        console.error("Invalid content-type:", req.headers["content-type"]);
       return res
         .status(400)
         .json({ error: "Content-Type must be application/json" });
@@ -21,11 +22,13 @@ router.post("/", async (req, res) => {
       req.headers["x-client"] !== "Trucky" ||
       !req.headers["user-agent"]?.includes("Trucky")
     ) {
+        console.error("Invalid client or user-agent:", req.headers["x-client"], req.headers["user-agent"]);
       return res.status(400).json({ error: "Invalid client" });
     }
 
     // Check if x-trucky-company-id is present
     if (!req.headers["x-trucky-company-id"]) {
+        console.error("Missing x-trucky-company-id header");
       return res.status(400).json({ error: "Missing ID" });
     }
 
@@ -341,11 +344,13 @@ router.post("/", async (req, res) => {
     );
     const companyData = await companyRes.json();
     if (!companyData.length) {
+        console.error("Company not found for ID:", companyId);
       return res.status(400).json({ error: "Company not found" });
     }
 
     // Validar que req.body.data existe
     if (!req.body?.data) {
+        console.error("Missing data in request body:", req.body);
       return res.status(400).json({ error: "Missing data" });
     }
 
