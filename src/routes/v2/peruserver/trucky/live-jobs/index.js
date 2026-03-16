@@ -44,11 +44,7 @@ const routeFullRedisCache = process.env.REDIS_URL
   : null;
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || '';
-const SUPABASE_ANON_KEY =
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
-  process.env.SUPABASE_ANON_KEY ||
-  process.env.SUPABASE_SERVICE_ROLE_KEY ||
-  '';
+const SUPABASE_ANON_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 
 startPeriodicProxyUpdate();
 
@@ -792,6 +788,95 @@ const fetchRegisteredCompanies = async (companiesSource = 'auto') => {
   };
 };
 
+const parseWebhookRawPayload = (raw) => {
+  if (!raw) return null;
+  if (typeof raw === 'object') return raw;
+  if (typeof raw !== 'string') return null;
+
+  try {
+    return JSON.parse(raw);
+  } catch (error) {
+    return null;
+  }
+};
+
+const mapWebhookJob = (row, company) => {
+  const rawPayload = parseWebhookRawPayload(row.raw);
+  const rawData = rawPayload && typeof rawPayload === 'object' ? rawPayload.data || {} : {};
+  const sourceName = String(rawData.source_city_name || row.source_city_id || 'Origen no identificado').trim();
+  const destinationName = String(rawData.destination_city_name || row.destination_city_id || 'Destino no identificado').trim();
+
+  return {
+    id: Number(row.job_id || row.id || 0),
+    companyId: company.id,
+    companyName: company.name,
+    updatedAt: row.updated_at || new Date(0).toISOString(),
+    startedAt: rawData.started_at || row.created_at || null,
+    status: row.status || 'unknown',
+    source: {
+      key: normalizePointKey(row.source_city_id, sourceName),
+      cityId: row.source_city_id || null,
+      cityName: sourceName,
+    },
+    destination: {
+      key: normalizePointKey(row.destination_city_id, destinationName),
+      cityId: row.destination_city_id || null,
+      cityName: destinationName,
+    },
+    driverName: (rawData.driver && rawData.driver.name && String(rawData.driver.name).trim()) || 'Sin conductor',
+    driverAvatarUrl: rawData.driver ? rawData.driver.avatar_url || null : null,
+    driverProfileUrl: rawData.driver ? rawData.driver.public_url || null : null,
+    cargoName: (rawData.cargo_name && String(rawData.cargo_name).trim()) || (row.cargo_id ? String(row.cargo_id).trim() : 'Carga no especificada'),
+    plannedDistanceKm: row.planned_distance_km != null ? Number(row.planned_distance_km) : null,
+    publicUrl: rawData.public_url || `https://hub.truckyapp.com/job/${row.job_id || row.id || ''}`,
+  };
+};
+
+const fetchLiveJobsFromSupabase = async ({ cutoffMs, companyMap }) => {
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    throw new Error('Falta configurar SUPABASE_URL o SUPABASE_ANON_KEY');
+  }
+
+  const jobs = [];
+  const pageSize = 1000;
+  let offset = 0;
+
+  while (true) {
+    const response = await axios.get(
+      `${SUPABASE_URL.replace(/\/+$/, '')}/rest/v1/jobs_webhooks?status=eq.in_progress&select=job_id,company_id,status,source_city_id,destination_city_id,cargo_id,planned_distance_km,created_at,updated_at,raw&order=updated_at.desc&limit=${pageSize}&offset=${offset}`,
+      {
+        headers: {
+          apikey: SUPABASE_ANON_KEY,
+          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+        },
+        timeout: 20000,
+      }
+    );
+
+    const rows = Array.isArray(response.data) ? response.data : [];
+
+    for (const row of rows) {
+      if (!isWithinLastDays(row, cutoffMs)) continue;
+
+      const companyId = Number(row.company_id);
+      const company = companyMap.get(companyId) || {
+        id: companyId,
+        name: `Empresa ${Number.isFinite(companyId) && companyId > 0 ? companyId : 'N/D'}`,
+      };
+      const job = mapWebhookJob(row, company);
+      if (job.id > 0) jobs.push(job);
+    }
+
+    if (rows.length < pageSize) {
+      break;
+    }
+
+    offset += pageSize;
+  }
+
+  return jobs;
+};
+
 const fetchCompanyJobs = async (company, cutoffMs, proxyCandidates, useProxyPool) => {
   const response = await truckyRequestWithRetry({
     params: {
@@ -873,6 +958,13 @@ const buildCoreSnapshot = async ({ days, companiesSource, companyBatchSize, prox
   const { companies, sourceUsed } = await fetchRegisteredCompanies(companiesSource);
   payload.companiesSourceUsed = sourceUsed;
   payload.companiesProcessed = companies.length;
+
+  const companyMap = new Map(companies.map((company) => [company.id, company]));
+  payload.jobs = (await fetchLiveJobsFromSupabase({ cutoffMs, companyMap }))
+    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+    .slice(0, MAX_JOBS);
+  payload.errors = [];
+  return payload;
 
   if (!companies.length) {
     return payload;
@@ -1131,16 +1223,17 @@ const parseRequestOptions = (query) => {
 
 router.get('/', async (req, res) => {
   try {
-      // Mostrar trabajos activos (status: in_progress) desde jobs_webhooks
-      const url = `${SUPABASE_URL}/rest/v1/jobs_webhooks?status=eq.in_progress&select=*`;
-      const response = await fetch(url, {
-        headers: {
-          'Content-Type': 'application/json',
-          apikey: SUPABASE_ANON_KEY,
-        },
-      });
-      const jobs = await response.json();
-    return res.json({ ok: true, jobs });
+    const options = parseRequestOptions(req.query);
+    const snapshot = await getCoreSnapshot({
+      days: options.days,
+      useDbCache: options.useDbCache,
+      companiesSource: options.companiesSource,
+      companyBatchSize: options.companyBatchSize,
+      proxyCandidates: [],
+      useProxyPool: false,
+    });
+
+    return res.json({ ok: true, jobs: snapshot.jobs });
   } catch (error) {
     return res.status(500).json({ ok: false, error: error.message || 'Error interno', jobs: [] });
   }

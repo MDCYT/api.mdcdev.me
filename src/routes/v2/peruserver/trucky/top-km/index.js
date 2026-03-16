@@ -4,7 +4,7 @@ const axios = require('axios');
 const router = Router();
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || '';
-const SUPABASE_ANON_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || '';
+const SUPABASE_ANON_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
 const CACHE_TTL_CURRENT_MONTH_MS = 30 * 60 * 1000;
@@ -123,7 +123,7 @@ const fetchAllJobsFromStart = async (startDateIso) => {
 
   while (true) {
     const response = await axios.get(
-      `${supabaseUrl}/rest/v1/jobs_webhooks?created_at=gte.${startDateIso}&select=company_id,driven_distance_km,real_driven_distance_km,job_id,created_at&order=created_at.asc&limit=${pageSize}&offset=${offset}`,
+      `${supabaseUrl}/rest/v1/jobs_webhooks?created_at=gte.${startDateIso}&select=company_id,driven_distance_km,real_driven_distance_km,job_id,created_at,status,event_type&order=created_at.asc&limit=${pageSize}&offset=${offset}`,
       {
         headers,
         timeout: 20000,
@@ -143,14 +143,18 @@ const fetchAllJobsFromStart = async (startDateIso) => {
   return jobs;
 };
 
-const fetchCompaniesMap = async (companyIds) => {
+const fetchCompaniesMap = async (companyIds = null) => {
   const supabaseUrl = SUPABASE_URL.replace(/\/+$/, '');
   const headers = getSupabaseHeaders();
   const companiesMap = new Map();
 
-  for (const batch of chunkArray(companyIds, 150)) {
+  const batches = companyIds == null ? [null] : chunkArray(companyIds, 150);
+
+  for (const batch of batches) {
     const response = await axios.get(
-      `${supabaseUrl}/rest/v1/trucky_companies?company_id=in.(${batch.join(',')})&select=company_id,name,tag,members_count`,
+      batch == null
+        ? `${supabaseUrl}/rest/v1/trucky_companies?select=company_id,name,tag,members_count&order=company_id.asc`
+        : `${supabaseUrl}/rest/v1/trucky_companies?company_id=in.(${batch.join(',')})&select=company_id,name,tag,members_count`,
       {
         headers,
         timeout: 15000,
@@ -172,8 +176,17 @@ const buildAccumulatedResponse = async ({ startMonth, startYear, limit }) => {
   const currentYear = currentDate.getUTCFullYear();
   const monthRanges = generateMonthRanges(startMonth, startYear, currentMonth, currentYear);
   const startDate = new Date(Date.UTC(startYear, startMonth - 1, 1));
+  const companiesMap = await fetchCompaniesMap();
   const jobs = await fetchAllJobsFromStart(startDate.toISOString());
-  const rankingMap = new Map();
+  const rankingMap = new Map(
+    [...companiesMap.values()].map((company) => [Number(company.company_id), {
+      id: Number(company.company_id),
+      total_distance: 0,
+      total_jobs: 0,
+      months_processed: monthRanges.length,
+      months_with_errors: 0,
+    }])
+  );
 
   for (const job of jobs) {
     const companyId = Number(job.company_id);
@@ -192,16 +205,18 @@ const buildAccumulatedResponse = async ({ startMonth, startYear, limit }) => {
     const item = rankingMap.get(companyId);
     const distance = Number(job.driven_distance_km ?? job.real_driven_distance_km) || 0;
     item.total_distance += distance;
-    item.total_jobs += 1;
+    const eventType = String(job.event_type || '').trim().toLowerCase();
+    if (eventType === 'job_completed') {
+      item.total_jobs += 1;
+    }
   }
 
-  const companyIds = [...rankingMap.keys()];
-  const companiesMap = companyIds.length > 0 ? await fetchCompaniesMap(companyIds) : new Map();
   const items = [...rankingMap.values()]
     .map((item) => {
       const company = companiesMap.get(item.id) || {};
       return {
         ...item,
+        total_distance: Math.floor(Number(item.total_distance) || 0),
         name: company.name || `Empresa ${item.id}`,
         tag: company.tag || '',
         members: Number.isFinite(Number(company.members_count)) ? Number(company.members_count) : null,
