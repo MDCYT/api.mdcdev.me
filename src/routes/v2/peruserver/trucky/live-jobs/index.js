@@ -1200,8 +1200,27 @@ router.get('/', async (req, res) => {
       errors: options.includeErrors ? snapshot.errors : [],
     };
 
+    // Etiqueta de estado del backup
+    let backup_status = 'empty';
+    if (responsePayload.jobs && Array.isArray(responsePayload.jobs)) {
+      if (responsePayload.jobs.length === 0) {
+        backup_status = 'empty';
+      } else if (responsePayload.errors && responsePayload.errors.length === responsePayload.jobs.length) {
+        backup_status = 'corrupt';
+      } else if (responsePayload.jobs.length > 0) {
+        backup_status = 'valid';
+      } else {
+        backup_status = 'invalid';
+      }
+    } else if (responsePayload.error) {
+      backup_status = 'error';
+    }
+
+    // Guardar snapshot en Supabase
+    try { await saveSnapshotInSupabase({ days: options.days, companiesSource: options.companiesSource }, responsePayload); } catch (e) { /* ignora error de backup */ }
+
     res.set('Cache-Control', 'public, s-maxage=30, stale-while-revalidate=15');
-    return res.json(responsePayload);
+    return res.json({ ...responsePayload, backup_status });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Error desconocido';
     res.set('Cache-Control', 'no-store, no-cache');
