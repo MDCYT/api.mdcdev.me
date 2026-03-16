@@ -1,64 +1,15 @@
 const { Router } = require('express');
 const axios = require('axios');
-const {
-  startPeriodicProxyUpdate,
-  getRandomProxy,
-  getCachedProxies,
-} = require('../../../../../utils/proxy-manager');
 
 const router = Router();
 
-const PERUSERVER_COMPANIES_URL = 'https://peruserver.pe/wp-json/psv/v1/companies';
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || '';
 const SUPABASE_ANON_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || '';
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
 const CACHE_TTL_MS = 30 * 60 * 1000;
-const COMPANIES_CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 horas
-const BACKGROUND_RETRY_BASE_MS = Math.max(2000, Number.parseInt(process.env.TRUCKY_BACKGROUND_RETRY_BASE_MS || '5000', 10) || 5000);
-const BACKGROUND_RETRY_MAX_ATTEMPTS_RAW = Number.parseInt(process.env.TRUCKY_BACKGROUND_RETRY_MAX_ATTEMPTS || '6', 10);
-const BACKGROUND_RETRY_MAX_ATTEMPTS = Number.isFinite(BACKGROUND_RETRY_MAX_ATTEMPTS_RAW) && BACKGROUND_RETRY_MAX_ATTEMPTS_RAW <= 0
-  ? Infinity
-  : Math.max(1, BACKGROUND_RETRY_MAX_ATTEMPTS_RAW || 6);
-const DEFAULT_COMPANY_BATCH_SIZE = Math.min(
-  5,
-  Math.max(1, Number.parseInt(process.env.TRUCKY_CONCURRENCY || '3', 10) || 3)
-);
-const TRUCKY_MAX_RETRIES = Math.max(1, Number.parseInt(process.env.TRUCKY_MAX_RETRIES || '3', 10) || 3);
-const TRUCKY_RETRY_BASE_MS = Math.max(200, Number.parseInt(process.env.TRUCKY_RETRY_BASE_MS || '700', 10) || 700);
-const TRUCKY_HEADERS = {
-  // User-Agent personalizado según la documentación de Trucky
-  'User-Agent': 'peruserver-bot/1.0 (+https://github.com/mdcyt; extracción de datos de empresas para ranking y análisis en peruserver.de)',
-  Accept: 'application/json, text/plain, */*',
-  Referer: 'https://hub.truckyapp.com/',
-  Origin: 'https://hub.truckyapp.com',
-  'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
-};
-
-startPeriodicProxyUpdate();
 
 const monthlyCache = new Map();
-const companiesCache = {
-  companyIds: [],
-  nextRefreshAt: 0,
-  inFlight: null,
-  lastError: null,
-};
-
-const getSupabaseCacheEnv = () => {
-  const url = (SUPABASE_URL || '').replace(/\/+$/, '');
-  const anonKey = SUPABASE_ANON_KEY || '';
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
-
-  if (!url) return null;
-
-  return {
-    url,
-    anonKey,
-    key: anonKey,
-    serviceRoleKey,
-  };
-};
 
 const nowUtc = () => new Date();
 
@@ -79,11 +30,11 @@ const parseMonthYear = (query) => {
   if (Number.isNaN(year)) year = currentDate.getUTCFullYear();
 
   if (month < 1 || month > 12) {
-    return { error: 'El parámetro month debe estar entre 1 y 12' };
+    return { error: 'El parametro month debe estar entre 1 y 12' };
   }
 
   if (year < 2000 || year > 3000) {
-    return { error: 'El parámetro year no es válido' };
+    return { error: 'El parametro year no es valido' };
   }
 
   return { month, year };
@@ -91,327 +42,164 @@ const parseMonthYear = (query) => {
 
 const parseLimit = (rawLimit) => {
   const parsed = parseInt(rawLimit, 10);
-
   if (Number.isNaN(parsed)) return DEFAULT_LIMIT;
   if (parsed < 1) return 1;
   if (parsed > MAX_LIMIT) return MAX_LIMIT;
-
   return parsed;
 };
 
 const parseBoolean = (rawValue, defaultValue) => {
   if (rawValue == null) return defaultValue;
   const value = String(rawValue).trim().toLowerCase();
-
   if (['1', 'true', 'yes', 'y', 'on'].includes(value)) return true;
   if (['0', 'false', 'no', 'n', 'off'].includes(value)) return false;
-
   return defaultValue;
 };
 
-const parsePositiveInt = (rawValue, defaultValue, minValue, maxValue) => {
-  const parsed = Number(rawValue);
-  if (!Number.isFinite(parsed)) return defaultValue;
-  return Math.min(Math.max(Math.floor(parsed), minValue), maxValue);
-};
-
-const parseProxyForAxios = (rawProxy) => {
-  if (!rawProxy) return null;
-
-  try {
-    const withProtocol = /^(http|https):\/\//i.test(rawProxy)
-      ? rawProxy
-      : `http://${rawProxy}`;
-    const url = new URL(withProtocol);
-
-    return {
-      protocol: url.protocol.replace(':', ''),
-      host: url.hostname,
-      port: Number(url.port || (url.protocol === 'https:' ? 443 : 80)),
-      auth: url.username
-        ? {
-            username: decodeURIComponent(url.username),
-            password: decodeURIComponent(url.password || ''),
-          }
-        : undefined,
-    };
-  } catch (error) {
-    return null;
+const chunkArray = (items, size) => {
+  const chunks = [];
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size));
   }
+  return chunks;
 };
 
-const getTruckyProxyCandidates = (query) => {
-  const queryProxyRaw = query && query.truckyProxy ? String(query.truckyProxy).trim() : '';
-  const queryProxyListRaw = query && query.truckyProxyList ? String(query.truckyProxyList).trim() : '';
+const getSupabaseCacheEnv = () => {
+  const url = (SUPABASE_URL || '').replace(/\/+$/, '');
+  const anonKey = SUPABASE_ANON_KEY || '';
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 
-  const queryProxies = queryProxyListRaw
-    ? queryProxyListRaw.split(',').map((item) => item.trim()).filter(Boolean)
-    : [];
+  if (!url) return null;
 
-  if (queryProxyRaw) {
-    queryProxies.unshift(queryProxyRaw);
-  }
-
-  return queryProxies.filter(Boolean);
-};
-
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-const isRetryableTruckyStatus = (status) => [403, 429, 500, 502, 503, 504].includes(status);
-
-// Permite pasar apiKey para x-access-token y loguea cada intento
-const truckyRequestWithRetry = async ({ url, params, timeout = 15000, proxyCandidates = [], useProxyPool = true, apiKey = null, companyId = null }) => {
-  let lastError = null;
-
-  for (let attempt = 0; attempt < TRUCKY_MAX_RETRIES; attempt += 1) {
-    const poolProxy = useProxyPool && proxyCandidates.length === 0 ? getRandomProxy() : null;
-    const proxyRaw = proxyCandidates.length > 0
-      ? proxyCandidates[attempt % proxyCandidates.length]
-      : poolProxy;
-    const proxy = parseProxyForAxios(proxyRaw);
-
-    // Headers base + x-access-token si hay apiKey
-    const headers = { ...TRUCKY_HEADERS };
-    if (apiKey) headers['x-access-token'] = apiKey;
-
-    const logPrefix = `[Trucky][${companyId || 'no-id'}][try ${attempt + 1}]`;
-    try {
-      console.log(`${logPrefix} GET ${url} ${apiKey ? '[api_key]' : ''}`);
-      const response = await axios.get(url, {
-        params,
-        headers,
-        timeout,
-        proxy: proxy || undefined,
-      });
-      console.log(`${logPrefix} OK (${response.status})`);
-      return response;
-    } catch (error) {
-      lastError = error;
-      const status = Number(error && error.response && error.response.status);
-      const shouldRetry = isRetryableTruckyStatus(status);
-      console.warn(`${logPrefix} FAIL (${status || error.code || error.message})`);
-
-      if (!shouldRetry || attempt === TRUCKY_MAX_RETRIES - 1) {
-        throw error;
-      }
-
-      const waitMs = TRUCKY_RETRY_BASE_MS * (attempt + 1) + Math.floor(Math.random() * 250);
-      await sleep(waitMs);
-    }
-  }
-
-  throw lastError || new Error('Error desconocido consultando Trucky');
-};
-
-const mapWithConcurrency = async (items, concurrency, asyncMapper) => {
-  const results = new Array(items.length);
-  let nextIndex = 0;
-
-  const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
-    while (nextIndex < items.length) {
-      const currentIndex = nextIndex;
-      nextIndex += 1;
-      results[currentIndex] = await asyncMapper(items[currentIndex]);
-    }
-  });
-
-  await Promise.all(workers);
-  return results;
-};
-
-// Ahora retorna [{company_id, api_key}] en vez de solo ids
-const refreshCompaniesCache = async () => {
-  try {
-    let companies = [];
-
-    if (SUPABASE_URL && SUPABASE_ANON_KEY) {
-      const supabaseUrl = SUPABASE_URL.replace(/\/+$/, '');
-      const supabaseResponse = await axios.get(
-        supabaseUrl + '/rest/v1/trucky_companies?select=company_id,api_key&order=company_id.asc',
-        {
-          headers: {
-            apikey: SUPABASE_ANON_KEY,
-            Authorization: `Bearer ${SUPABASE_ANON_KEY}`
-          },
-          timeout: 15000
-        }
-      );
-      const rows = Array.isArray(supabaseResponse.data) ? supabaseResponse.data : [];
-      companies = rows
-        .map((row) => ({
-          company_id: Number(row.company_id),
-          api_key: typeof row.api_key === 'string' && row.api_key.length > 0 ? row.api_key : null
-        }))
-        .filter((row) => Number.isFinite(row.company_id) && row.company_id > 0);
-    }
-
-    // Fallback de seguridad si Supabase no está configurado o devuelve vacío.
-    if (!companies.length) {
-      const response = await axios.get(PERUSERVER_COMPANIES_URL, {
-        timeout: 15000
-      });
-      const arr = Array.isArray(response.data) ? response.data : [];
-      companies = arr
-        .map((company) => {
-          if (Number.isFinite(company)) return { company_id: company, api_key: null };
-          return {
-            company_id: company.id || company.company_id || company.empresaId,
-            api_key: null
-          };
-        })
-        .filter((row) => Number.isFinite(row.company_id));
-    }
-
-    companiesCache.companyIds = companies;
-    companiesCache.nextRefreshAt = Date.now() + COMPANIES_CACHE_TTL_MS;
-    companiesCache.lastError = null;
-    return companies;
-  } catch (error) {
-    companiesCache.lastError = {
-      message: error.message || 'Error desconocido al obtener empresas',
-      at: new Date().toISOString()
-    };
-    // Mantener el TTL anterior si hay error
-    companiesCache.nextRefreshAt = Date.now() + COMPANIES_CACHE_TTL_MS;
-    // Retornar cache anterior si disponible
-    return companiesCache.companyIds;
-  }
-};
-
-// Devuelve [{company_id, api_key}]
-const getCompanies = async () => {
-  const mustRefresh = Date.now() >= companiesCache.nextRefreshAt;
-
-  if (mustRefresh && !companiesCache.inFlight) {
-    companiesCache.inFlight = refreshCompaniesCache()
-      .finally(() => {
-        companiesCache.inFlight = null;
-      });
-  }
-
-  if (companiesCache.inFlight) {
-    await companiesCache.inFlight;
-  }
-
-  return companiesCache.companyIds;
-};
-
-// Ahora acepta { company_id, api_key } y pasa api_key a las requests
-const getCompanyMonthlyData = async (companyObj, month, year, requestOptions = {}) => {
-  const { company_id, api_key } = companyObj;
-  const processedAt = nowUtc().toISOString();
-
-  const fallbackItem = {
-    id: company_id,
-    name: 'Empresa ' + company_id,
-    tag: '',
-    distance: 0,
-    members: null,
-    total_jobs: null,
-    stats_http_code: null,
-    updated: processedAt,
-    stats_raw: null,
-    distance_field: null
+  return {
+    url,
+    anonKey,
+    key: anonKey,
+    serviceRoleKey,
   };
-
-  try {
-    const [companyResponse, statsResponse] = await Promise.allSettled([
-      truckyRequestWithRetry({
-        timeout: 15000,
-        proxyCandidates: requestOptions.proxyCandidates || [],
-        useProxyPool: requestOptions.useProxyPool !== false,
-        apiKey: api_key || null,
-        companyId: company_id
-      }),
-      truckyRequestWithRetry({
-        params: { month: month, year: year },
-        timeout: 15000,
-        proxyCandidates: requestOptions.proxyCandidates || [],
-        useProxyPool: requestOptions.useProxyPool !== false,
-        apiKey: api_key || null,
-        companyId: company_id
-      })
-    ]);
-
-    const companyData = companyResponse.status === 'fulfilled' ? companyResponse.value.data : null;
-    const statsData = statsResponse.status === 'fulfilled' ? statsResponse.value.data : null;
-
-    const statsHttpCode =
-      statsResponse.status === 'fulfilled'
-        ? statsResponse.value.status
-        : statsResponse.reason?.response?.status ?? null;
-
-    const realKm = Number(statsData?.total?.real_km ?? 0);
-    const raceKm = Number(statsData?.total?.race_km ?? 0);
-    const totalKm = realKm + raceKm;
-
-    const membersCount = companyData?.members_count;
-    const members = Number.isInteger(membersCount)
-      ? Math.max(0, membersCount - 1)
-      : null;
-
-    const total_jobs = Number.isFinite(Number(statsData?.total?.total_jobs))
-      ? Number(statsData.total.total_jobs)
-      : null;
-
-    return {
-      id: company_id,
-      name: companyData?.name || fallbackItem.name,
-      tag: companyData?.tag || '',
-      distance: totalKm,
-      members,
-      total_jobs,
-      stats_http_code: statsHttpCode,
-      updated: processedAt,
-      stats_raw: statsData,
-      distance_field: totalKm,
-    };
-  } catch (error) {
-    return {
-      ...fallbackItem,
-      stats_http_code: error?.response?.status ?? fallbackItem.stats_http_code,
-    };
-  }
 };
 
-const buildMonthlyResponse = async ({ month, year, limit, companyBatchSize, requestOptions }) => {
-  const allCompanies = await getCompanies(); // [{company_id, api_key}]
-  const selectedCompanies = allCompanies.slice(0, limit);
+const getSupabaseHeaders = () => {
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    throw new Error('Falta configurar SUPABASE_URL o SUPABASE_ANON_KEY');
+  }
 
-  const items = await mapWithConcurrency(selectedCompanies, companyBatchSize, async (companyObj) => {
-    return getCompanyMonthlyData(companyObj, month, year, requestOptions);
-  });
+  return {
+    apikey: SUPABASE_ANON_KEY,
+    Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+    'Content-Type': 'application/json',
+  };
+};
 
-  const sortedItems = [...items].sort((a, b) => {
-    const distanceA = Number(a.distance ?? 0);
-    const distanceB = Number(b.distance ?? 0);
-    return distanceB - distanceA;
-  });
+const fetchMonthlyJobs = async (month, year) => {
+  const startDate = new Date(Date.UTC(year, month - 1, 1));
+  const endDate = new Date(Date.UTC(year, month, 1));
+  const pageSize = 1000;
+  const jobs = [];
+  let offset = 0;
 
-  const countCompaniesErrors = sortedItems.filter((item) => item.stats_http_code === null || item.stats_http_code >= 400).length;
+  while (true) {
+    const response = await axios.get(
+      `${SUPABASE_URL.replace(/\/+$/, '')}/rest/v1/jobs_webhooks?created_at=gte.${startDate.toISOString()}&created_at=lt.${endDate.toISOString()}&select=company_id,driven_distance_km,real_driven_distance_km,job_id,created_at&order=created_at.asc&limit=${pageSize}&offset=${offset}`,
+      {
+        headers: getSupabaseHeaders(),
+        timeout: 20000,
+      }
+    );
+
+    const rows = Array.isArray(response.data) ? response.data : [];
+    jobs.push(...rows);
+
+    if (rows.length < pageSize) {
+      break;
+    }
+
+    offset += pageSize;
+  }
+
+  return jobs;
+};
+
+const fetchCompaniesMap = async (companyIds) => {
+  const companiesMap = new Map();
+
+  for (const batch of chunkArray(companyIds, 150)) {
+    const response = await axios.get(
+      `${SUPABASE_URL.replace(/\/+$/, '')}/rest/v1/trucky_companies?company_id=in.(${batch.join(',')})&select=company_id,name,tag,members_count`,
+      {
+        headers: getSupabaseHeaders(),
+        timeout: 15000,
+      }
+    );
+
+    const rows = Array.isArray(response.data) ? response.data : [];
+    for (const row of rows) {
+      companiesMap.set(Number(row.company_id), row);
+    }
+  }
+
+  return companiesMap;
+};
+
+const buildMonthlyResponse = async ({ month, year, limit }) => {
+  const jobs = await fetchMonthlyJobs(month, year);
+  const rankingMap = new Map();
+
+  for (const job of jobs) {
+    const companyId = Number(job.company_id);
+    if (!Number.isFinite(companyId) || companyId <= 0) continue;
+
+    if (!rankingMap.has(companyId)) {
+      rankingMap.set(companyId, {
+        id: companyId,
+        total_distance: 0,
+        total_jobs: 0,
+        months_processed: 1,
+        months_with_errors: 0,
+      });
+    }
+
+    const item = rankingMap.get(companyId);
+    const distance = Number(job.driven_distance_km ?? job.real_driven_distance_km) || 0;
+    item.total_distance += distance;
+    item.total_jobs += 1;
+  }
+
+  const companiesMap = await fetchCompaniesMap([...rankingMap.keys()]);
+  const items = [...rankingMap.values()]
+    .map((item) => {
+      const company = companiesMap.get(item.id) || {};
+      return {
+        ...item,
+        name: company.name || `Empresa ${item.id}`,
+        tag: company.tag || '',
+        members: Number.isFinite(Number(company.members_count)) ? Number(company.members_count) : null,
+      };
+    })
+    .sort((a, b) => b.total_distance - a.total_distance)
+    .slice(0, limit);
+
   const generatedAt = nowUtc();
 
   return {
     ok: true,
     limit,
-    month,
-    year,
-    count_companies_total: selectedCompanies.length,
-    count_companies_processed: sortedItems.length,
-    count_companies_errors: countCompaniesErrors,
-    items: sortedItems,
+    period: {
+      from: { month, year },
+      to: { month, year },
+      total_months: 1,
+    },
+    count_companies_total: rankingMap.size,
+    count_companies_processed: items.length,
+    items,
     timestamp: Math.floor(generatedAt.getTime() / 1000),
     timestamp_human: formatTimestampHuman(generatedAt),
-    note: 'Se muestran distancias TOTALES acumuladas (real_km + race_km, no la entrega más larga)',
+    note: 'Kilometros del mes seleccionado',
   };
 };
 
-function getCacheKey(obj) {
-  return obj.year + '-' + obj.month + '-' + obj.limit;
-}
-function getBackupCacheKey(obj) {
-  return 'monthly-' + obj.year + '-' + obj.month + '-' + obj.limit;
-}
+const getCacheKey = ({ month, year, limit }) => `monthly-${year}-${month}-${limit}`;
+const getBackupCacheKey = ({ month, year, limit }) => `monthly-${year}-${month}-${limit}`;
 
 const fetchBackupPayload = async ({ month, year, limit }) => {
   const env = getSupabaseCacheEnv();
@@ -420,15 +208,14 @@ const fetchBackupPayload = async ({ month, year, limit }) => {
   if (!env || !readKey) return null;
 
   try {
-    const backupKey = getBackupCacheKey({ month, year, limit });
     const response = await axios.get(
-      env.url + '/rest/v1/trucky_top_km_cache?select=payload,updated_at&cache_key=eq.' + encodeURIComponent(backupKey) + '&limit=1',
+      `${env.url}/rest/v1/trucky_top_km_cache?select=payload,updated_at&cache_key=eq.${encodeURIComponent(getBackupCacheKey({ month, year, limit }))}&limit=1`,
       {
         headers: {
           apikey: readKey,
-          Authorization: `Bearer ${readKey}`
+          Authorization: `Bearer ${readKey}`,
         },
-        timeout: 8000
+        timeout: 8000,
       }
     );
 
@@ -438,7 +225,7 @@ const fetchBackupPayload = async ({ month, year, limit }) => {
 
     return {
       payload: row.payload,
-      updatedAt: row.updated_at || null
+      updatedAt: row.updated_at || null,
     };
   } catch (error) {
     return null;
@@ -450,22 +237,21 @@ const saveBackupPayload = async ({ month, year, limit }, payload) => {
   if (!env || !env.serviceRoleKey) return;
 
   try {
-    const backupKey = getBackupCacheKey({ month, year, limit });
     await axios.post(
-      env.url + '/rest/v1/trucky_top_km_cache',
+      `${env.url}/rest/v1/trucky_top_km_cache`,
       [{
-        cache_key: backupKey,
-        payload: payload,
-        updated_at: new Date().toISOString()
+        cache_key: getBackupCacheKey({ month, year, limit }),
+        payload,
+        updated_at: new Date().toISOString(),
       }],
       {
         headers: {
           apikey: env.serviceRoleKey,
           Authorization: `Bearer ${env.serviceRoleKey}`,
           'Content-Type': 'application/json',
-          Prefer: 'resolution=merge-duplicates,return=minimal'
+          Prefer: 'resolution=merge-duplicates,return=minimal',
         },
-        timeout: 10000
+        timeout: 10000,
       }
     );
   } catch (error) {
@@ -481,30 +267,10 @@ const getCacheEntry = (cacheKey) => {
       nextRefreshAt: 0,
       inFlight: null,
       lastError: null,
-      retryAttempts: 0,
     });
   }
 
   return monthlyCache.get(cacheKey);
-};
-
-const scheduleBackgroundRetry = (entry, params) => {
-  if (entry.inFlight) return;
-  if (entry.retryAttempts >= BACKGROUND_RETRY_MAX_ATTEMPTS) return;
-
-  const delayMs = BACKGROUND_RETRY_BASE_MS * (2 ** Math.min(entry.retryAttempts, 4));
-  const timer = setTimeout(() => {
-    if (!entry.inFlight) {
-      entry.inFlight = refreshCacheEntry(entry, params)
-        .finally(() => {
-          entry.inFlight = null;
-        });
-    }
-  }, delayMs);
-
-  if (typeof timer.unref === 'function') {
-    timer.unref();
-  }
 };
 
 const refreshCacheEntry = async (entry, params) => {
@@ -514,7 +280,6 @@ const refreshCacheEntry = async (entry, params) => {
     entry.payloadSource = 'memory';
     entry.nextRefreshAt = Date.now() + CACHE_TTL_MS;
     entry.lastError = null;
-    entry.retryAttempts = 0;
 
     await saveBackupPayload(params, payload);
   } catch (error) {
@@ -522,10 +287,8 @@ const refreshCacheEntry = async (entry, params) => {
       message: error.message || 'Error desconocido al actualizar cache',
       at: new Date().toISOString(),
     };
-
     entry.nextRefreshAt = Date.now() + CACHE_TTL_MS;
-    entry.retryAttempts += 1;
-    scheduleBackgroundRetry(entry, params);
+    throw error;
   }
 };
 
@@ -539,56 +302,55 @@ router.get('/', async (req, res) => {
         timestamp: Math.floor(Date.now() / 1000),
       });
     }
+
     const { month, year } = parsedMonthYear;
     const limit = parseLimit(req.query.limit);
-    // Obtener trabajos del mes desde jobs_webhooks
-    const startDate = new Date(Date.UTC(year, month - 1, 1));
-    const endDate = new Date(Date.UTC(year, month, 1));
-    console.log(`Obteniendo trabajos desde jobs_webhooks para ${year}-${month} (desde ${startDate.toISOString()} hasta ${endDate.toISOString()})`);
-    const url = `${SUPABASE_URL}/rest/v1/jobs_webhooks?created_at=gte.${startDate.toISOString()}&created_at=lt.${endDate.toISOString()}&select=driver_id,driven_distance_km,driver_id,company_id,job_id,status,created_at`;
-    const response = await fetch(url, {
-      headers: {
-        'Content-Type': 'application/json',
-        apikey: SUPABASE_ANON_KEY,
-        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+    const cacheKey = getCacheKey({ month, year, limit });
+    const entry = getCacheEntry(cacheKey);
+    const forceRefresh = parseBoolean(req.query.refresh, false);
+    const shouldRefresh = forceRefresh || !entry.payload || Date.now() >= entry.nextRefreshAt;
+
+    if (shouldRefresh && !entry.inFlight) {
+      entry.inFlight = refreshCacheEntry(entry, { month, year, limit })
+        .finally(() => {
+          entry.inFlight = null;
+        });
+    }
+
+    if (entry.inFlight && !entry.payload) {
+      try {
+        await entry.inFlight;
+      } catch (error) {
+        const backup = await fetchBackupPayload({ month, year, limit });
+        if (backup && backup.payload) {
+          entry.payload = backup.payload;
+          entry.payloadSource = 'backup';
+          entry.nextRefreshAt = Date.now() + CACHE_TTL_MS;
+        } else {
+          throw error;
+        }
+      }
+    }
+
+    if (!entry.payload) {
+      throw new Error('No se pudo generar el top mensual');
+    }
+
+    return res.json({
+      ...entry.payload,
+      cache: {
+        source: entry.payloadSource,
+        stale: shouldRefresh && Boolean(entry.lastError),
+        next_refresh_at: entry.nextRefreshAt,
+        last_error: entry.lastError,
       },
     });
-    const jobs = await response.json();
-    console.log(`Obtenidos ${Array.isArray(jobs) ? jobs.length : 0} trabajos desde jobs_webhooks para ${year}-${month}`);
-    // Agrupar por company_id y sumar driven_distance_km
-    const ranking = {};
-    for (const job of jobs) {
-      if (!job.company_id) continue;
-      if (!ranking[job.company_id]) ranking[job.company_id] = { company_id: job.company_id, total_km: 0, jobs: 0 };
-      ranking[job.company_id].total_km += Number(job.driven_distance_km) || 0;
-      ranking[job.company_id].jobs++;
-    }
-    // Obtener datos de empresa para los company_id únicos
-    const companyIds = [...new Set(Object.values(ranking).map(r => r.company_id).filter(Boolean))];
-    let companies = [];
-    if (companyIds.length > 0) {
-      const companiesUrl = `${SUPABASE_URL}/rest/v1/trucky_companies?company_id=in.(${companyIds.join(',')})&select=company_id,name,tag,members_count`;
-      const companiesRes = await fetch(companiesUrl, {
-        headers: {
-          'Content-Type': 'application/json',
-          apikey: SUPABASE_ANON_KEY,
-        },
-      });
-      companies = await companiesRes.json();
-    }
-    // Convertir a array y ordenar
-    const result = Object.values(ranking).sort((a, b) => b.total_km - a.total_km).slice(0, limit).map(r => {
-      const company = companies.find(c => c.company_id === r.company_id) || {};
-      return {
-        ...r,
-        company_name: company.name || null,
-        company_tag: company.tag || null,
-        company_members: company.members_count || null,
-      };
-    });
-    return res.json({ ok: true, month, year, ranking: result });
   } catch (error) {
-    return res.status(500).json({ ok: false, error: error.message || 'Error interno', timestamp: Math.floor(Date.now() / 1000) });
+    return res.status(500).json({
+      ok: false,
+      error: error.message || 'Error interno',
+      timestamp: Math.floor(Date.now() / 1000),
+    });
   }
 });
 
