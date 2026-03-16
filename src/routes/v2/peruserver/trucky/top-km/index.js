@@ -8,7 +8,6 @@ const {
 
 const router = Router();
 
-const TRUCKY_BASE_URL = 'https://e.truckyapp.com/api/v1/company';
 const PERUSERVER_COMPANIES_URL = 'https://peruserver.pe/wp-json/psv/v1/companies';
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || '';
 const SUPABASE_ANON_KEY =
@@ -318,7 +317,6 @@ const mapWithConcurrency = async (items, concurrency, asyncMapper) => {
 const getMonthlyStatsForCompany = async (companyId, month, year, requestOptions = {}) => {
   try {
     const response = await truckyRequestWithRetry({
-      url: `${TRUCKY_BASE_URL}/${companyId}/stats/monthly`,
       params: { month, year },
       timeout: 15000,
       proxyCandidates: requestOptions.proxyCandidates || [],
@@ -353,7 +351,6 @@ const getCompanyInfo = async (companyId, requestOptions = {}) => {
 
   try {
     const response = await truckyRequestWithRetry({
-      url: `${TRUCKY_BASE_URL}/${companyId}`,
       timeout: 15000,
       proxyCandidates: requestOptions.proxyCandidates || [],
       useProxyPool: requestOptions.useProxyPool !== false,
@@ -620,125 +617,61 @@ const refreshCacheEntry = async (entry, params) => {
 
 router.get('/', async (req, res) => {
   try {
-    const parsedStartMonthYear = parseStartMonthYear(req.query);
-    if (parsedStartMonthYear.error) {
-      return res.status(400).json({
-        ok: false,
-        error: parsedStartMonthYear.error,
-        timestamp: Math.floor(Date.now() / 1000),
-      });
-    }
-
-    const { month: startMonth, year: startYear } = parsedStartMonthYear;
     const limit = parseLimit(req.query.limit);
-    const companyBatchSize = parsePositiveInt(req.query.companyBatchSize, DEFAULT_COMPANY_BATCH_SIZE, 1, 10);
-    const disableProxy = parseBoolean(req.query.disableProxy, false);
-    const asyncMode = parseBoolean(req.query.async, process.env.NODE_ENV === 'production');
-    const proxyCandidates = disableProxy ? [] : getTruckyProxyCandidates(req.query);
-    const params = {
-      startMonth,
-      startYear,
-      limit,
-      companyBatchSize,
-      requestOptions: {
-        proxyCandidates,
-        useProxyPool: !disableProxy,
+    let filter = '';
+    let month, year;
+    if (req.query.month && req.query.year) {
+      month = parseInt(req.query.month, 10);
+      year = parseInt(req.query.year, 10);
+      if (!isNaN(month) && !isNaN(year) && month >= 1 && month <= 12 && year >= 2000 && year <= 3000) {
+        const startDate = new Date(Date.UTC(year, month - 1, 1));
+        const endDate = new Date(Date.UTC(year, month, 1));
+        filter = `&created_at=gte.${startDate.toISOString()}&created_at=lt.${endDate.toISOString()}`;
+      }
+    }
+    // Obtener trabajos filtrados desde jobs_webhooks
+    const url = `${SUPABASE_URL}/rest/v1/jobs_webhooks?select=driver_id,driven_distance_km,driver_id,company_id,job_id,status,created_at${filter}`;
+    const response = await fetch(url, {
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: SUPABASE_ANON_KEY,
       },
-    };
-    const cacheKey = getAccumulatedCacheKey(params);
-    const entry = getCacheEntry(cacheKey);
-
-    const mustRefresh = !entry.payload || Date.now() >= entry.nextRefreshAt;
-
-    if (mustRefresh && !entry.inFlight) {
-      entry.inFlight = refreshCacheEntry(entry, params)
-        .finally(() => {
-          entry.inFlight = null;
-        });
-    }
-
-    if (entry.inFlight && !asyncMode) {
-      await entry.inFlight;
-    }
-
-    if (!entry.payload) {
-      const backup = await fetchBackupPayload(params);
-      if (backup && backup.payload) {
-        entry.payload = backup.payload;
-        entry.payloadSource = 'supabase_backup';
-      }
-    }
-
-    if (entry.payload) {
-      // Etiqueta de estado del backup
-      let backup_status = 'empty';
-      if (entry.payload.items && Array.isArray(entry.payload.items)) {
-        if (entry.payload.items.length === 0) {
-          backup_status = 'empty';
-        } else if (entry.payload.count_companies_errors === entry.payload.items.length) {
-          backup_status = 'corrupt';
-        } else if (entry.payload.count_companies_processed > 0) {
-          backup_status = 'valid';
-        } else {
-          backup_status = 'invalid';
-        }
-      } else if (entry.payload.ok === false) {
-        backup_status = 'error';
-      }
-
-      // Guardar payload en Supabase
-      try { await saveBackupPayload(params, entry.payload); } catch (e) { /* ignora error de backup */ }
-
-      return res.json({
-        ...entry.payload,
-        backup_status,
-        cache: {
-          hasPayload: true,
-          refreshing: Boolean(entry.inFlight),
-          stale: mustRefresh,
-          mode: asyncMode ? 'async' : 'sync',
-          source: entry.payloadSource || 'memory',
-        },
-        truckyRequestConfig: {
-          companyBatchSize,
-          explicitProxiesCount: proxyCandidates.length,
-          useProxyPool: !disableProxy,
-          proxyPoolSize: !disableProxy ? getCachedProxies().length : 0,
-        },
-      });
-    }
-
-    if (entry.inFlight && asyncMode) {
-      return res.status(202).json({
-        ok: true,
-        warming: true,
-        period: {
-          from: { month: startMonth, year: startYear },
-        },
-        limit,
-        message: 'Actualizando cache en segundo plano. Reintenta en unos segundos.',
-        truckyRequestConfig: {
-          companyBatchSize,
-          explicitProxiesCount: proxyCandidates.length,
-          useProxyPool: !disableProxy,
-          proxyPoolSize: !disableProxy ? getCachedProxies().length : 0,
-        },
-        timestamp: Math.floor(Date.now() / 1000),
-      });
-    }
-
-    return res.status(503).json({
-      ok: false,
-      error: 'No se pudo obtener datos de Trucky en este momento',
-      detail: entry.lastError?.message || null,
-      timestamp: Math.floor(Date.now() / 1000),
     });
+    const jobs = await response.json();
+    // Agrupar por driver_id y sumar driven_distance_km, guardar company_id
+    const ranking = {};
+    for (const job of jobs) {
+      if (!job.driver_id) continue;
+      if (!ranking[job.driver_id]) ranking[job.driver_id] = { driver_id: job.driver_id, total_km: 0, jobs: 0, company_id: job.company_id };
+      ranking[job.driver_id].total_km += Number(job.driven_distance_km) || 0;
+      ranking[job.driver_id].jobs++;
+    }
+    // Obtener datos de empresa para los company_id únicos
+    const companyIds = [...new Set(Object.values(ranking).map(r => r.company_id).filter(Boolean))];
+    let companies = [];
+    if (companyIds.length > 0) {
+      const companiesUrl = `${SUPABASE_URL}/rest/v1/trucky_companies?company_id=in.(${companyIds.join(',')})&select=company_id,name,tag,members_count`;
+      const companiesRes = await fetch(companiesUrl, {
+        headers: {
+          'Content-Type': 'application/json',
+          apikey: SUPABASE_ANON_KEY,
+        },
+      });
+      companies = await companiesRes.json();
+    }
+    // Convertir a array y ordenar
+    const result = Object.values(ranking).sort((a, b) => b.total_km - a.total_km).slice(0, limit).map(r => {
+      const company = companies.find(c => c.company_id === r.company_id) || {};
+      return {
+        ...r,
+        company_name: company.name || null,
+        company_tag: company.tag || null,
+        company_members: company.members_count || null,
+      };
+    });
+    return res.json({ ok: true, month, year, ranking: result });
   } catch (error) {
-    return res.status(500).json({
-      ok: false,
-      error: error.message || 'Error interno al consultar datos de Trucky',
-      timestamp: Math.floor(Date.now() / 1000),
-    });
+    return res.status(500).json({ ok: false, error: error.message || 'Error interno', timestamp: Math.floor(Date.now() / 1000) });
   }
 });
 

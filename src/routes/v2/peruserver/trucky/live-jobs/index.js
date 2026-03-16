@@ -9,7 +9,6 @@ const {
 
 const router = Router();
 
-const TRUCKY_BASE_URL = 'https://e.truckyapp.com/api/v1/company';
 const PERUSERVER_COMPANIES_URL = 'https://peruserver.pe/wp-json/psv/v1/companies';
 const TRUCKY_HEADERS = {
   // User-Agent personalizado según la documentación de Trucky
@@ -795,7 +794,6 @@ const fetchRegisteredCompanies = async (companiesSource = 'auto') => {
 
 const fetchCompanyJobs = async (company, cutoffMs, proxyCandidates, useProxyPool) => {
   const response = await truckyRequestWithRetry({
-    url: `${TRUCKY_BASE_URL}/${company.id}/jobs`,
     params: {
       top: 0,
       page: 1,
@@ -1133,102 +1131,18 @@ const parseRequestOptions = (query) => {
 
 router.get('/', async (req, res) => {
   try {
-    const options = parseRequestOptions(req.query);
-    const proxyCandidates = options.disableProxy ? [] : getTruckyProxyCandidates(req.query);
-    const useProxyPool = !options.disableProxy;
-    const proxyPoolSize = useProxyPool ? getCachedProxies().length : 0;
-    const snapshot = await getCoreSnapshot({
-      days: options.days,
-      useDbCache: options.useDbCache,
-      companiesSource: options.companiesSource,
-      companyBatchSize: options.companyBatchSize,
-      proxyCandidates,
-      useProxyPool,
-    });
-    const paginated = options.fromJobId != null
-      ? paginateJobsFromId(snapshot.jobs, options.fromJobId, options.perPage)
-      : paginateJobs(snapshot.jobs, options.page, options.perPage);
-    const jobs = options.compactJobs
-      ? paginated.items.map(toCompactJob)
-      : paginated.items;
-
-    const includeRouteCoordinates = options.includeRouteCoordinates
-      ? (options.coordinatesForRouteKeys.size > 0 || options.coordinatesForJobIds.size > 0
-          ? {
-              routeKeys: options.coordinatesForRouteKeys,
-              jobIds: options.coordinatesForJobIds,
-            }
-          : true)
-      : false;
-
-    const geoPayload = await buildGeoPayload({
-      jobs: paginated.items,
-      includePoints: options.includePoints,
-      includeRoutes: options.includeRoutes,
-      includeUnresolved: options.includeUnresolved,
-      includeBlocked: options.includeBlocked,
-      includeRouteCoordinates,
-      writeUnresolved: options.writeUnresolved,
-    });
-
-    const responsePayload = {
-      fetchedAt: snapshot.fetchedAt,
-      days: options.days,
-      companiesSourceRequested: options.companiesSource,
-      companiesSourceUsed: snapshot.companiesSourceUsed || options.companiesSource,
-      truckyRequestConfig: {
-        companyBatchSize: options.companyBatchSize,
-        explicitProxiesCount: proxyCandidates.length,
-        useProxyPool,
-        proxyPoolSize,
-      },
-      companiesProcessed: snapshot.companiesProcessed,
-      pagination: {
-        mode: paginated.mode,
-        page: paginated.page,
-        fromJobId: paginated.fromJobId,
-        nextFromJobId: paginated.nextFromJobId,
-        perPage: paginated.perPage,
-        totalJobs: paginated.totalJobs,
-        totalPages: paginated.totalPages,
-      },
-      jobs,
-      cachedPoints: geoPayload.cachedPoints,
-      cachedRoutes: geoPayload.cachedRoutes,
-      unresolvedPoints: geoPayload.unresolvedPoints,
-      blockedPointKeys: geoPayload.blockedPointKeys,
-      errors: options.includeErrors ? snapshot.errors : [],
-    };
-
-    // Etiqueta de estado del backup
-    let backup_status = 'empty';
-    if (responsePayload.jobs && Array.isArray(responsePayload.jobs)) {
-      if (responsePayload.jobs.length === 0) {
-        backup_status = 'empty';
-      } else if (responsePayload.errors && responsePayload.errors.length === responsePayload.jobs.length) {
-        backup_status = 'corrupt';
-      } else if (responsePayload.jobs.length > 0) {
-        backup_status = 'valid';
-      } else {
-        backup_status = 'invalid';
-      }
-    } else if (responsePayload.error) {
-      backup_status = 'error';
-    }
-
-    // Guardar snapshot en Supabase
-    try { await saveSnapshotInSupabase({ days: options.days, companiesSource: options.companiesSource }, responsePayload); } catch (e) { /* ignora error de backup */ }
-
-    res.set('Cache-Control', 'public, s-maxage=30, stale-while-revalidate=15');
-    return res.json({ ...responsePayload, backup_status });
+      // Mostrar trabajos activos (status: in_progress) desde jobs_webhooks
+      const url = `${SUPABASE_URL}/rest/v1/jobs_webhooks?status=eq.in_progress&select=*`;
+      const response = await fetch(url, {
+        headers: {
+          'Content-Type': 'application/json',
+          apikey: SUPABASE_ANON_KEY,
+        },
+      });
+      const jobs = await response.json();
+    return res.json({ ok: true, jobs });
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Error desconocido';
-    res.set('Cache-Control', 'no-store, no-cache');
-    return res.status(500).json({
-      fetchedAt: new Date().toISOString(),
-      error: message,
-      jobs: [],
-    });
+    return res.status(500).json({ ok: false, error: error.message || 'Error interno', jobs: [] });
   }
 });
 
