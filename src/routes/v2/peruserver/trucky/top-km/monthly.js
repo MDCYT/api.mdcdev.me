@@ -10,11 +10,7 @@ const router = Router();
 
 const PERUSERVER_COMPANIES_URL = 'https://peruserver.pe/wp-json/psv/v1/companies';
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || '';
-const SUPABASE_ANON_KEY =
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
-  process.env.SUPABASE_ANON_KEY ||
-  process.env.SUPABASE_SERVICE_ROLE_KEY ||
-  '';
+const SUPABASE_ANON_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || '';
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
 const CACHE_TTL_MS = 30 * 60 * 1000;
@@ -548,24 +544,48 @@ router.get('/', async (req, res) => {
     // Obtener trabajos del mes desde jobs_webhooks
     const startDate = new Date(Date.UTC(year, month - 1, 1));
     const endDate = new Date(Date.UTC(year, month, 1));
+    console.log(`Obteniendo trabajos desde jobs_webhooks para ${year}-${month} (desde ${startDate.toISOString()} hasta ${endDate.toISOString()})`);
     const url = `${SUPABASE_URL}/rest/v1/jobs_webhooks?created_at=gte.${startDate.toISOString()}&created_at=lt.${endDate.toISOString()}&select=driver_id,driven_distance_km,driver_id,company_id,job_id,status,created_at`;
     const response = await fetch(url, {
       headers: {
         'Content-Type': 'application/json',
         apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
       },
     });
     const jobs = await response.json();
-    // Agrupar por driver_id y sumar driven_distance_km
+    console.log(`Obtenidos ${Array.isArray(jobs) ? jobs.length : 0} trabajos desde jobs_webhooks para ${year}-${month}`);
+    // Agrupar por company_id y sumar driven_distance_km
     const ranking = {};
     for (const job of jobs) {
-      if (!job.driver_id) continue;
-      if (!ranking[job.driver_id]) ranking[job.driver_id] = { driver_id: job.driver_id, total_km: 0, jobs: 0 };
-      ranking[job.driver_id].total_km += Number(job.driven_distance_km) || 0;
-      ranking[job.driver_id].jobs++;
+      if (!job.company_id) continue;
+      if (!ranking[job.company_id]) ranking[job.company_id] = { company_id: job.company_id, total_km: 0, jobs: 0 };
+      ranking[job.company_id].total_km += Number(job.driven_distance_km) || 0;
+      ranking[job.company_id].jobs++;
+    }
+    // Obtener datos de empresa para los company_id únicos
+    const companyIds = [...new Set(Object.values(ranking).map(r => r.company_id).filter(Boolean))];
+    let companies = [];
+    if (companyIds.length > 0) {
+      const companiesUrl = `${SUPABASE_URL}/rest/v1/trucky_companies?company_id=in.(${companyIds.join(',')})&select=company_id,name,tag,members_count`;
+      const companiesRes = await fetch(companiesUrl, {
+        headers: {
+          'Content-Type': 'application/json',
+          apikey: SUPABASE_ANON_KEY,
+        },
+      });
+      companies = await companiesRes.json();
     }
     // Convertir a array y ordenar
-    const result = Object.values(ranking).sort((a, b) => b.total_km - a.total_km).slice(0, limit);
+    const result = Object.values(ranking).sort((a, b) => b.total_km - a.total_km).slice(0, limit).map(r => {
+      const company = companies.find(c => c.company_id === r.company_id) || {};
+      return {
+        ...r,
+        company_name: company.name || null,
+        company_tag: company.tag || null,
+        company_members: company.members_count || null,
+      };
+    });
     return res.json({ ok: true, month, year, ranking: result });
   } catch (error) {
     return res.status(500).json({ ok: false, error: error.message || 'Error interno', timestamp: Math.floor(Date.now() / 1000) });
