@@ -164,7 +164,8 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const isRetryableTruckyStatus = (status) => [403, 429, 500, 502, 503, 504].includes(status);
 
-const truckyRequestWithRetry = async ({ url, params, timeout = 15000, proxyCandidates = [], useProxyPool = true }) => {
+// Permite pasar apiKey para x-access-token y loguea cada intento
+const truckyRequestWithRetry = async ({ url, params, timeout = 15000, proxyCandidates = [], useProxyPool = true, apiKey = null, companyId = null }) => {
   let lastError = null;
 
   for (let attempt = 0; attempt < TRUCKY_MAX_RETRIES; attempt += 1) {
@@ -174,19 +175,26 @@ const truckyRequestWithRetry = async ({ url, params, timeout = 15000, proxyCandi
       : poolProxy;
     const proxy = parseProxyForAxios(proxyRaw);
 
+    // Headers base + x-access-token si hay apiKey
+    const headers = { ...TRUCKY_HEADERS };
+    if (apiKey) headers['x-access-token'] = apiKey;
+
+    const logPrefix = `[Trucky][${companyId || 'no-id'}][try ${attempt + 1}]`;
     try {
+      console.log(`${logPrefix} GET ${url} ${apiKey ? '[api_key]' : ''}`);
       const response = await axios.get(url, {
         params,
-        headers: TRUCKY_HEADERS,
+        headers,
         timeout,
         proxy: proxy || undefined,
       });
-
+      console.log(`${logPrefix} OK (${response.status})`);
       return response;
     } catch (error) {
       lastError = error;
       const status = Number(error && error.response && error.response.status);
       const shouldRetry = isRetryableTruckyStatus(status);
+      console.warn(`${logPrefix} FAIL (${status || error.code || error.message})`);
 
       if (!shouldRetry || attempt === TRUCKY_MAX_RETRIES - 1) {
         throw error;
@@ -216,62 +224,66 @@ const mapWithConcurrency = async (items, concurrency, asyncMapper) => {
   return results;
 };
 
+// Ahora retorna [{company_id, api_key}] en vez de solo ids
 const refreshCompaniesCache = async () => {
   try {
-    let companyIds = [];
+    let companies = [];
 
     if (SUPABASE_URL && SUPABASE_ANON_KEY) {
+      const supabaseUrl = SUPABASE_URL.replace(/\/+$/, '');
       const supabaseResponse = await axios.get(
-        `${SUPABASE_URL.replace(/\/+$/, '')}/rest/v1/trucky_companies?select=company_id&order=company_id.asc`,
+        supabaseUrl + '/rest/v1/trucky_companies?select=company_id,api_key&order=company_id.asc',
         {
           headers: {
             apikey: SUPABASE_ANON_KEY,
-            Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+            Authorization: `Bearer ${SUPABASE_ANON_KEY}`
           },
-          timeout: 15000,
+          timeout: 15000
         }
       );
-
       const rows = Array.isArray(supabaseResponse.data) ? supabaseResponse.data : [];
-      companyIds = rows
-        .map((row) => Number(row.company_id))
-        .filter((id) => Number.isFinite(id) && id > 0);
+      companies = rows
+        .map((row) => ({
+          company_id: Number(row.company_id),
+          api_key: typeof row.api_key === 'string' && row.api_key.length > 0 ? row.api_key : null
+        }))
+        .filter((row) => Number.isFinite(row.company_id) && row.company_id > 0);
     }
 
     // Fallback de seguridad si Supabase no está configurado o devuelve vacío.
-    if (!companyIds.length) {
+    if (!companies.length) {
       const response = await axios.get(PERUSERVER_COMPANIES_URL, {
-        timeout: 15000,
+        timeout: 15000
       });
-
-      const companies = Array.isArray(response.data) ? response.data : [];
-      companyIds = companies
+      const arr = Array.isArray(response.data) ? response.data : [];
+      companies = arr
         .map((company) => {
-          if (Number.isFinite(company)) return company;
-          return company.id || company.company_id || company.empresaId;
+          if (Number.isFinite(company)) return { company_id: company, api_key: null };
+          return {
+            company_id: company.id || company.company_id || company.empresaId,
+            api_key: null
+          };
         })
-        .filter((id) => Number.isFinite(id));
+        .filter((row) => Number.isFinite(row.company_id));
     }
 
-    companiesCache.companyIds = companyIds;
+    companiesCache.companyIds = companies;
     companiesCache.nextRefreshAt = Date.now() + COMPANIES_CACHE_TTL_MS;
     companiesCache.lastError = null;
-
-    return companyIds;
+    return companies;
   } catch (error) {
     companiesCache.lastError = {
       message: error.message || 'Error desconocido al obtener empresas',
-      at: new Date().toISOString(),
+      at: new Date().toISOString()
     };
-
     // Mantener el TTL anterior si hay error
     companiesCache.nextRefreshAt = Date.now() + COMPANIES_CACHE_TTL_MS;
-
     // Retornar cache anterior si disponible
     return companiesCache.companyIds;
   }
 };
 
+// Devuelve [{company_id, api_key}]
 const getCompanies = async () => {
   const mustRefresh = Date.now() >= companiesCache.nextRefreshAt;
 
@@ -289,12 +301,14 @@ const getCompanies = async () => {
   return companiesCache.companyIds;
 };
 
-const getCompanyMonthlyData = async (companyId, month, year, requestOptions = {}) => {
+// Ahora acepta { company_id, api_key } y pasa api_key a las requests
+const getCompanyMonthlyData = async (companyObj, month, year, requestOptions = {}) => {
+  const { company_id, api_key } = companyObj;
   const processedAt = nowUtc().toISOString();
 
   const fallbackItem = {
-    id: companyId,
-    name: `Empresa ${companyId}`,
+    id: company_id,
+    name: 'Empresa ' + company_id,
     tag: '',
     distance: 0,
     members: null,
@@ -302,24 +316,28 @@ const getCompanyMonthlyData = async (companyId, month, year, requestOptions = {}
     stats_http_code: null,
     updated: processedAt,
     stats_raw: null,
-    distance_field: null,
+    distance_field: null
   };
 
   try {
     const [companyResponse, statsResponse] = await Promise.allSettled([
       truckyRequestWithRetry({
-        url: `${TRUCKY_BASE_URL}/${companyId}`,
+        url: TRUCKY_BASE_URL + '/' + company_id,
         timeout: 15000,
         proxyCandidates: requestOptions.proxyCandidates || [],
         useProxyPool: requestOptions.useProxyPool !== false,
+        apiKey: api_key || null,
+        companyId: company_id
       }),
       truckyRequestWithRetry({
-        url: `${TRUCKY_BASE_URL}/${companyId}/stats/monthly`,
-        params: { month, year },
+        url: TRUCKY_BASE_URL + '/' + company_id + '/stats/monthly',
+        params: { month: month, year: year },
         timeout: 15000,
         proxyCandidates: requestOptions.proxyCandidates || [],
         useProxyPool: requestOptions.useProxyPool !== false,
-      }),
+        apiKey: api_key || null,
+        companyId: company_id
+      })
     ]);
 
     const companyData = companyResponse.status === 'fulfilled' ? companyResponse.value.data : null;
@@ -344,7 +362,7 @@ const getCompanyMonthlyData = async (companyId, month, year, requestOptions = {}
       : null;
 
     return {
-      id: companyId,
+      id: company_id,
       name: companyData?.name || fallbackItem.name,
       tag: companyData?.tag || '',
       distance: totalKm,
@@ -364,11 +382,11 @@ const getCompanyMonthlyData = async (companyId, month, year, requestOptions = {}
 };
 
 const buildMonthlyResponse = async ({ month, year, limit, companyBatchSize, requestOptions }) => {
-  const allCompanyIds = await getCompanies();
-  const selectedCompanyIds = allCompanyIds.slice(0, limit);
+  const allCompanies = await getCompanies(); // [{company_id, api_key}]
+  const selectedCompanies = allCompanies.slice(0, limit);
 
-  const items = await mapWithConcurrency(selectedCompanyIds, companyBatchSize, async (companyId) => {
-    return getCompanyMonthlyData(companyId, month, year, requestOptions);
+  const items = await mapWithConcurrency(selectedCompanies, companyBatchSize, async (companyObj) => {
+    return getCompanyMonthlyData(companyObj, month, year, requestOptions);
   });
 
   const sortedItems = [...items].sort((a, b) => {
@@ -385,7 +403,7 @@ const buildMonthlyResponse = async ({ month, year, limit, companyBatchSize, requ
     limit,
     month,
     year,
-    count_companies_total: selectedCompanyIds.length,
+    count_companies_total: selectedCompanies.length,
     count_companies_processed: sortedItems.length,
     count_companies_errors: countCompaniesErrors,
     items: sortedItems,
@@ -395,9 +413,12 @@ const buildMonthlyResponse = async ({ month, year, limit, companyBatchSize, requ
   };
 };
 
-const getCacheKey = ({ month, year, limit }) => `${year}-${month}-${limit}`;
-
-const getBackupCacheKey = ({ month, year, limit }) => `monthly-${year}-${month}-${limit}`;
+function getCacheKey(obj) {
+  return obj.year + '-' + obj.month + '-' + obj.limit;
+}
+function getBackupCacheKey(obj) {
+  return 'monthly-' + obj.year + '-' + obj.month + '-' + obj.limit;
+}
 
 const fetchBackupPayload = async ({ month, year, limit }) => {
   const env = getSupabaseCacheEnv();
@@ -408,13 +429,13 @@ const fetchBackupPayload = async ({ month, year, limit }) => {
   try {
     const backupKey = getBackupCacheKey({ month, year, limit });
     const response = await axios.get(
-      `${env.url}/rest/v1/trucky_top_km_cache?select=payload,updated_at&cache_key=eq.${encodeURIComponent(backupKey)}&limit=1`,
+      env.url + '/rest/v1/trucky_top_km_cache?select=payload,updated_at&cache_key=eq.' + encodeURIComponent(backupKey) + '&limit=1',
       {
         headers: {
           apikey: readKey,
-          Authorization: `Bearer ${readKey}`,
+          Authorization: `Bearer ${readKey}`
         },
-        timeout: 8000,
+        timeout: 8000
       }
     );
 
@@ -424,7 +445,7 @@ const fetchBackupPayload = async ({ month, year, limit }) => {
 
     return {
       payload: row.payload,
-      updatedAt: row.updated_at || null,
+      updatedAt: row.updated_at || null
     };
   } catch (error) {
     return null;
@@ -438,20 +459,20 @@ const saveBackupPayload = async ({ month, year, limit }, payload) => {
   try {
     const backupKey = getBackupCacheKey({ month, year, limit });
     await axios.post(
-      `${env.url}/rest/v1/trucky_top_km_cache`,
+      env.url + '/rest/v1/trucky_top_km_cache',
       [{
         cache_key: backupKey,
-        payload,
-        updated_at: new Date().toISOString(),
+        payload: payload,
+        updated_at: new Date().toISOString()
       }],
       {
         headers: {
           apikey: env.serviceRoleKey,
           Authorization: `Bearer ${env.serviceRoleKey}`,
           'Content-Type': 'application/json',
-          Prefer: 'resolution=merge-duplicates,return=minimal',
+          Prefer: 'resolution=merge-duplicates,return=minimal'
         },
-        timeout: 10000,
+        timeout: 10000
       }
     );
   } catch (error) {
