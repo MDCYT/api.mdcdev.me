@@ -588,9 +588,28 @@ router.get('/', async (req, res) => {
       }
     }
 
+    // Etiqueta de estado del backup
+    let backup_status = 'empty';
+    if (entry.payload && Array.isArray(entry.payload.items)) {
+      if (entry.payload.items.length === 0) {
+        backup_status = 'empty';
+      } else if (entry.payload.count_companies_errors === entry.payload.items.length) {
+        backup_status = 'corrupt';
+      } else if (entry.payload.count_companies_processed > 0) {
+        backup_status = 'valid';
+      } else {
+        backup_status = 'invalid';
+      }
+    } else if (entry.payload && entry.payload.ok === false) {
+      backup_status = 'error';
+    }
+
+    // Siempre guardar el payload retornado en Supabase
     if (entry.payload) {
+      try { await saveBackupPayload(params, entry.payload); } catch (e) { /* ignora error de backup */ }
       return res.json({
         ...entry.payload,
+        backup_status,
         cache: {
           hasPayload: true,
           refreshing: Boolean(entry.inFlight),
