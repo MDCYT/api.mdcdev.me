@@ -394,6 +394,18 @@ const getJobMaxSpeedKmh = (row) => {
   return speed;
 };
 
+const parseRouteJobDetails = (row) => {
+  const rawPayload = parseWebhookRawPayload(row.raw);
+  const rawData = rawPayload && typeof rawPayload === 'object' ? rawPayload.data || {} : {};
+
+  return {
+    cargoName: rawData.cargo_name ? String(rawData.cargo_name).trim() : null,
+    publicUrl: rawData.public_url || (row.job_id ? `https://hub.truckyapp.com/job/${row.job_id}` : null),
+    startedAt: rawData.started_at || null,
+    market: row.market || rawData.market || null,
+  };
+};
+
 const parseRouteFromRaw = (row) => {
   const rawPayload = parseWebhookRawPayload(row.raw);
   const rawData = rawPayload && typeof rawPayload === 'object' ? rawPayload.data || {} : {};
@@ -668,8 +680,11 @@ const buildRoutesPayload = async ({
   const select = [
     'job_id',
     'company_id',
+    'driver_id',
     'source_city_id',
     'destination_city_id',
+    'cargo_id',
+    'market',
     'planned_distance_km',
     'driven_distance_km',
     'real_driven_distance_km',
@@ -696,7 +711,8 @@ const buildRoutesPayload = async ({
       company,
       totalDistanceKm: 0,
       totalJobs: 0,
-      routes: new Map(),
+      uniqueRouteKeys: new Set(),
+      routes: [],
     });
   }
 
@@ -706,38 +722,40 @@ const buildRoutesPayload = async ({
     if (!groupedRoutes.has(companyId)) continue;
 
     const route = parseRouteFromRaw(row);
+    const driver = parseDriverFromRaw(row);
+    const jobDetails = parseRouteJobDetails(row);
     const distanceKm = getJobDistanceKm(row);
     const plannedDistanceKm = getJobPlannedDistanceKm(row);
     const maxSpeedKmh = getJobMaxSpeedKmh(row);
     const group = groupedRoutes.get(companyId);
+    const updatedAt = row.updated_at || row.created_at || null;
 
     group.totalDistanceKm += distanceKm;
     group.totalJobs += 1;
+    group.uniqueRouteKeys.add(route.routeKey);
     routeKeys.add(route.routeKey);
-
-    if (!group.routes.has(route.routeKey)) {
-      group.routes.set(route.routeKey, {
-        routeKey: route.routeKey,
-        source: route.source,
-        destination: route.destination,
-        totalDistanceKm: 0,
-        totalPlannedDistanceKm: 0,
-        maxSpeedKmh: null,
-        totalJobs: 0,
-        lastJobAt: row.updated_at || row.created_at || null,
-      });
-    }
-
-    const routeEntry = group.routes.get(route.routeKey);
-    routeEntry.totalDistanceKm += distanceKm;
-    routeEntry.totalPlannedDistanceKm += plannedDistanceKm;
-    routeEntry.maxSpeedKmh = maxSpeedKmh == null
-      ? routeEntry.maxSpeedKmh
-      : Math.max(routeEntry.maxSpeedKmh == null ? 0 : routeEntry.maxSpeedKmh, maxSpeedKmh);
-    routeEntry.totalJobs += 1;
-    if ((row.updated_at || row.created_at || '') > (routeEntry.lastJobAt || '')) {
-      routeEntry.lastJobAt = row.updated_at || row.created_at || null;
-    }
+    group.routes.push({
+      jobId: Number(row.job_id || 0),
+      routeKey: route.routeKey,
+      source: route.source,
+      destination: route.destination,
+      driver: Number.isFinite(driver.id) && driver.id > 0 ? driver : null,
+      cargoName: jobDetails.cargoName || (row.cargo_id ? String(row.cargo_id).trim() : null),
+      market: jobDetails.market,
+      publicUrl: jobDetails.publicUrl,
+      startedAt: jobDetails.startedAt,
+      createdAt: row.created_at || null,
+      updatedAt,
+      lastJobAt: updatedAt,
+      status: row.status || null,
+      eventType: row.event_type || null,
+      distanceKm: Math.floor(distanceKm),
+      plannedDistanceKm: Math.floor(plannedDistanceKm),
+      totalDistanceKm: Math.floor(distanceKm),
+      totalPlannedDistanceKm: Math.floor(plannedDistanceKm),
+      maxSpeedKmh: maxSpeedKmh == null ? null : Math.round(maxSpeedKmh * 100) / 100,
+      totalJobs: 1,
+    });
   }
 
   const routeMetadataMap = await fetchRouteMetadata(Array.from(routeKeys), includeCoordinates);
@@ -748,16 +766,14 @@ const buildRoutesPayload = async ({
       stats: {
         totalDistanceKm: Math.floor(entry.totalDistanceKm),
         totalJobs: entry.totalJobs,
-        totalRoutes: entry.routes.size,
+        totalRoutes: entry.uniqueRouteKeys.size,
+        totalRouteEntries: entry.routes.length,
       },
-      routes: [...entry.routes.values()]
+      routes: entry.routes
         .map((route) => {
           const metadata = routeMetadataMap.get(route.routeKey) || null;
           return {
             ...route,
-            totalDistanceKm: Math.floor(route.totalDistanceKm),
-            totalPlannedDistanceKm: Math.floor(route.totalPlannedDistanceKm),
-            maxSpeedKmh: route.maxSpeedKmh == null ? null : Math.round(route.maxSpeedKmh * 100) / 100,
             routeCache: metadata ? {
               distanceMeters: metadata.distanceMeters,
               durationSeconds: metadata.durationSeconds,
