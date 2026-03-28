@@ -12,6 +12,8 @@ const DEFAULT_USERS_LIMIT = 10;
 const MAX_USERS_LIMIT = 50;
 const DEFAULT_ROUTES_LIMIT = 20;
 const MAX_ROUTES_LIMIT = 100;
+const DEFAULT_ROUTE_JOBS_LIMIT = 500;
+const MAX_ROUTE_JOBS_LIMIT = 500;
 const PAGE_SIZE = 1000;
 
 const SAFE_COMPANY_SELECT = [
@@ -267,16 +269,20 @@ const fetchCompanyById = async (companyId) => {
   return rows[0] ? mapCompany(rows[0]) : null;
 };
 
-const fetchJobs = async ({ select, period, companyIds, status }) => {
+const fetchJobs = async ({ select, period, companyIds, status, jobsLimit = null, jobsOrder = 'asc' }) => {
   const headers = getSupabaseHeaders();
   const jobs = [];
   let offset = 0;
+  const safeJobsLimit = Number.isFinite(Number(jobsLimit)) && Number(jobsLimit) > 0
+    ? Math.min(Number(jobsLimit), MAX_ROUTE_JOBS_LIMIT)
+    : null;
+  const safeJobsOrder = String(jobsOrder || 'asc').trim().toLowerCase() === 'desc' ? 'desc' : 'asc';
 
   while (true) {
     const params = new URLSearchParams();
     params.set('select', select);
-    params.set('order', 'created_at.asc');
-    params.set('limit', String(PAGE_SIZE));
+    params.set('order', `created_at.${safeJobsOrder}`);
+    params.set('limit', String(safeJobsLimit == null ? PAGE_SIZE : Math.min(PAGE_SIZE, safeJobsLimit - jobs.length)));
     params.set('offset', String(offset));
 
     if (period.startIso) params.append('created_at', `gte.${period.startIso}`);
@@ -290,9 +296,13 @@ const fetchJobs = async ({ select, period, companyIds, status }) => {
     });
 
     const rows = Array.isArray(response.data) ? response.data : [];
-    jobs.push(...rows);
+    if (safeJobsLimit == null) {
+      jobs.push(...rows);
+    } else {
+      jobs.push(...rows.slice(0, Math.max(0, safeJobsLimit - jobs.length)));
+    }
 
-    if (rows.length < PAGE_SIZE) {
+    if (rows.length < PAGE_SIZE || (safeJobsLimit != null && jobs.length >= safeJobsLimit)) {
       break;
     }
 
@@ -406,6 +416,114 @@ const parseRouteFromRaw = (row) => {
       cityName: destinationCityName,
     },
   };
+};
+
+const normalizeRouteSortOrder = (rawValue, defaultValue = 'desc') => {
+  const normalized = String(rawValue || defaultValue).trim().toLowerCase();
+  return normalized === 'asc' ? 'asc' : 'desc';
+};
+
+const parseRouteSort = (query) => {
+  const sortAlias = String(query.sort || '').trim().toLowerCase();
+  const sortByRaw = String(query.sortBy || '').trim().toLowerCase();
+  const sortOrderRaw = String(query.sortOrder || query.order || '').trim().toLowerCase();
+
+  const aliasMap = {
+    newest: { sortBy: 'last_job_at', sortOrder: 'desc' },
+    latest: { sortBy: 'last_job_at', sortOrder: 'desc' },
+    recent: { sortBy: 'last_job_at', sortOrder: 'desc' },
+    oldest: { sortBy: 'last_job_at', sortOrder: 'asc' },
+    planned_longest: { sortBy: 'planned_distance', sortOrder: 'desc' },
+    planned_shortest: { sortBy: 'planned_distance', sortOrder: 'asc' },
+    real_longest: { sortBy: 'real_distance', sortOrder: 'desc' },
+    real_shortest: { sortBy: 'real_distance', sortOrder: 'asc' },
+    distance_longest: { sortBy: 'real_distance', sortOrder: 'desc' },
+    distance_shortest: { sortBy: 'real_distance', sortOrder: 'asc' },
+    max_speed_highest: { sortBy: 'max_speed', sortOrder: 'desc' },
+    max_speed_lowest: { sortBy: 'max_speed', sortOrder: 'asc' },
+    speed_highest: { sortBy: 'max_speed', sortOrder: 'desc' },
+    speed_lowest: { sortBy: 'max_speed', sortOrder: 'asc' },
+    jobs_most: { sortBy: 'jobs', sortOrder: 'desc' },
+    jobs_least: { sortBy: 'jobs', sortOrder: 'asc' },
+  };
+
+  if (aliasMap[sortAlias]) {
+    return aliasMap[sortAlias];
+  }
+
+  const sortByAliases = {
+    newest: 'last_job_at',
+    latest: 'last_job_at',
+    recent: 'last_job_at',
+    oldest: 'last_job_at',
+    date: 'last_job_at',
+    last_job_at: 'last_job_at',
+    planned: 'planned_distance',
+    planned_distance: 'planned_distance',
+    planned_km: 'planned_distance',
+    real: 'real_distance',
+    real_distance: 'real_distance',
+    distance: 'real_distance',
+    real_km: 'real_distance',
+    speed: 'max_speed',
+    max_speed: 'max_speed',
+    max_speed_kmh: 'max_speed',
+    jobs: 'jobs',
+    total_jobs: 'jobs',
+    route: 'route_key',
+    route_key: 'route_key',
+  };
+
+  const sortBy = sortByAliases[sortByRaw] || 'real_distance';
+  let sortOrder = normalizeRouteSortOrder(sortOrderRaw, 'desc');
+
+  if (sortByRaw === 'oldest') {
+    sortOrder = 'asc';
+  }
+
+  return { sortBy, sortOrder };
+};
+
+const compareNullableNumbers = (left, right, sortOrder) => {
+  const leftValue = left == null ? null : Number(left);
+  const rightValue = right == null ? null : Number(right);
+
+  if (leftValue == null && rightValue == null) return 0;
+  if (leftValue == null) return 1;
+  if (rightValue == null) return -1;
+
+  return sortOrder === 'asc' ? leftValue - rightValue : rightValue - leftValue;
+};
+
+const compareRoutes = (left, right, routeSort) => {
+  if (routeSort.sortBy === 'last_job_at') {
+    const leftTime = new Date(left.lastJobAt || 0).getTime();
+    const rightTime = new Date(right.lastJobAt || 0).getTime();
+    if (leftTime !== rightTime) {
+      return routeSort.sortOrder === 'asc' ? leftTime - rightTime : rightTime - leftTime;
+    }
+  } else if (routeSort.sortBy === 'planned_distance') {
+    const distanceComparison = compareNullableNumbers(left.totalPlannedDistanceKm, right.totalPlannedDistanceKm, routeSort.sortOrder);
+    if (distanceComparison !== 0) return distanceComparison;
+  } else if (routeSort.sortBy === 'real_distance') {
+    const distanceComparison = compareNullableNumbers(left.totalDistanceKm, right.totalDistanceKm, routeSort.sortOrder);
+    if (distanceComparison !== 0) return distanceComparison;
+  } else if (routeSort.sortBy === 'max_speed') {
+    const speedComparison = compareNullableNumbers(left.maxSpeedKmh, right.maxSpeedKmh, routeSort.sortOrder);
+    if (speedComparison !== 0) return speedComparison;
+  } else if (routeSort.sortBy === 'jobs') {
+    const jobsComparison = compareNullableNumbers(left.totalJobs, right.totalJobs, routeSort.sortOrder);
+    if (jobsComparison !== 0) return jobsComparison;
+  } else if (routeSort.sortBy === 'route_key') {
+    const routeKeyComparison = left.routeKey.localeCompare(right.routeKey, 'es');
+    if (routeKeyComparison !== 0) {
+      return routeSort.sortOrder === 'asc' ? routeKeyComparison : -routeKeyComparison;
+    }
+  }
+
+  if (right.totalDistanceKm !== left.totalDistanceKm) return right.totalDistanceKm - left.totalDistanceKm;
+  if (right.totalJobs !== left.totalJobs) return right.totalJobs - left.totalJobs;
+  return left.routeKey.localeCompare(right.routeKey, 'es');
 };
 
 const buildUsersTopPayload = async ({ companyIds, period, status, usersLimit, companiesLimit }) => {
@@ -537,7 +655,16 @@ const buildUsersTopPayload = async ({ companyIds, period, status, usersLimit, co
   };
 };
 
-const buildRoutesPayload = async ({ companyIds, period, status, routesLimit, includeCoordinates }) => {
+const buildRoutesPayload = async ({
+  companyIds,
+  period,
+  status,
+  routesLimit,
+  includeCoordinates,
+  jobsLimit,
+  jobsOrder,
+  routeSort,
+}) => {
   const select = [
     'job_id',
     'company_id',
@@ -556,7 +683,7 @@ const buildRoutesPayload = async ({ companyIds, period, status, routesLimit, inc
 
   const [companies, jobs] = await Promise.all([
     fetchCompanies(companyIds),
-    fetchJobs({ select, period, companyIds, status }),
+    fetchJobs({ select, period, companyIds, status, jobsLimit, jobsOrder }),
   ]);
 
   const companiesMap = new Map(companies.map((company) => [company.id, company]));
@@ -639,11 +766,7 @@ const buildRoutesPayload = async ({ companyIds, period, status, routesLimit, inc
             } : null,
           };
         })
-        .sort((left, right) => {
-          if (right.totalDistanceKm !== left.totalDistanceKm) return right.totalDistanceKm - left.totalDistanceKm;
-          if (right.totalJobs !== left.totalJobs) return right.totalJobs - left.totalJobs;
-          return left.routeKey.localeCompare(right.routeKey, 'es');
-        })
+        .sort((left, right) => compareRoutes(left, right, routeSort))
         .slice(0, routesLimit),
     }))
     .sort((left, right) => {
@@ -661,6 +784,9 @@ const buildRoutesPayload = async ({ companyIds, period, status, routesLimit, inc
       companyIds,
       status,
       routesLimit,
+      jobsLimit,
+      jobsOrder,
+      routeSort,
       includeCoordinates,
     },
     period: {
@@ -671,6 +797,7 @@ const buildRoutesPayload = async ({ companyIds, period, status, routesLimit, inc
       month: period.month || null,
       year: period.year || null,
     },
+    jobsAnalyzed: jobs.length,
     totalCompanies: items.length,
     items,
     timestamp: Math.floor(generatedAt.getTime() / 1000),
@@ -691,7 +818,7 @@ router.get('/', (req, res) => {
       companies: '/v2/peruserver/trucky/public/companies?search=movil',
       company: '/v2/peruserver/trucky/public/companies/41407',
       usersTop: '/v2/peruserver/trucky/public/users/top?companyIds=41407,42815&month=3&year=2026&usersLimit=10',
-      routes: '/v2/peruserver/trucky/public/routes?companyIds=41407&month=3&year=2026&routesLimit=20',
+      routes: '/v2/peruserver/trucky/public/routes?companyIds=41407&month=3&year=2026&routesLimit=20&jobsLimit=500&sort=max_speed_highest',
     },
   });
 });
@@ -808,6 +935,9 @@ router.get('/routes', async (req, res) => {
   try {
     const companyIds = parseCsvNumberList(req.query.companyIds ?? req.query.ids ?? req.query.companyId);
     const routesLimit = parsePositiveInt(req.query.routesLimit ?? req.query.limitRoutes, DEFAULT_ROUTES_LIMIT, 1, MAX_ROUTES_LIMIT);
+    const jobsLimit = parsePositiveInt(req.query.jobsLimit ?? req.query.limitJobs, DEFAULT_ROUTE_JOBS_LIMIT, 1, MAX_ROUTE_JOBS_LIMIT);
+    const jobsOrder = normalizeRouteSortOrder(req.query.jobsOrder ?? req.query.jobsSortOrder, 'desc');
+    const routeSort = parseRouteSort(req.query);
     const includeCoordinates = parseBoolean(req.query.includeCoordinates, false);
     const status = normalizeStatus(req.query.status);
     const period = parsePeriod(req.query);
@@ -828,6 +958,9 @@ router.get('/routes', async (req, res) => {
       period,
       status,
       routesLimit,
+      jobsLimit,
+      jobsOrder,
+      routeSort,
       includeCoordinates,
     });
 
