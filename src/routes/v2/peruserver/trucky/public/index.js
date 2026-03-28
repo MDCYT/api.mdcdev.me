@@ -378,6 +378,12 @@ const getJobPlannedDistanceKm = (row) => {
   return distance;
 };
 
+const getJobMaxSpeedKmh = (row) => {
+  const speed = Number(row.max_speed_kmh);
+  if (!Number.isFinite(speed) || speed < 0) return null;
+  return speed;
+};
+
 const parseRouteFromRaw = (row) => {
   const rawPayload = parseWebhookRawPayload(row.raw);
   const rawData = rawPayload && typeof rawPayload === 'object' ? rawPayload.data || {} : {};
@@ -540,6 +546,7 @@ const buildRoutesPayload = async ({ companyIds, period, status, routesLimit, inc
     'planned_distance_km',
     'driven_distance_km',
     'real_driven_distance_km',
+    'max_speed_kmh',
     'status',
     'event_type',
     'created_at',
@@ -574,6 +581,7 @@ const buildRoutesPayload = async ({ companyIds, period, status, routesLimit, inc
     const route = parseRouteFromRaw(row);
     const distanceKm = getJobDistanceKm(row);
     const plannedDistanceKm = getJobPlannedDistanceKm(row);
+    const maxSpeedKmh = getJobMaxSpeedKmh(row);
     const group = groupedRoutes.get(companyId);
 
     group.totalDistanceKm += distanceKm;
@@ -587,6 +595,7 @@ const buildRoutesPayload = async ({ companyIds, period, status, routesLimit, inc
         destination: route.destination,
         totalDistanceKm: 0,
         totalPlannedDistanceKm: 0,
+        maxSpeedKmh: null,
         totalJobs: 0,
         lastJobAt: row.updated_at || row.created_at || null,
       });
@@ -595,6 +604,9 @@ const buildRoutesPayload = async ({ companyIds, period, status, routesLimit, inc
     const routeEntry = group.routes.get(route.routeKey);
     routeEntry.totalDistanceKm += distanceKm;
     routeEntry.totalPlannedDistanceKm += plannedDistanceKm;
+    routeEntry.maxSpeedKmh = maxSpeedKmh == null
+      ? routeEntry.maxSpeedKmh
+      : Math.max(routeEntry.maxSpeedKmh == null ? 0 : routeEntry.maxSpeedKmh, maxSpeedKmh);
     routeEntry.totalJobs += 1;
     if ((row.updated_at || row.created_at || '') > (routeEntry.lastJobAt || '')) {
       routeEntry.lastJobAt = row.updated_at || row.created_at || null;
@@ -618,6 +630,7 @@ const buildRoutesPayload = async ({ companyIds, period, status, routesLimit, inc
             ...route,
             totalDistanceKm: Math.floor(route.totalDistanceKm),
             totalPlannedDistanceKm: Math.floor(route.totalPlannedDistanceKm),
+            maxSpeedKmh: route.maxSpeedKmh == null ? null : Math.round(route.maxSpeedKmh * 100) / 100,
             routeCache: metadata ? {
               distanceMeters: metadata.distanceMeters,
               durationSeconds: metadata.durationSeconds,
