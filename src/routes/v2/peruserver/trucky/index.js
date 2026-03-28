@@ -1,10 +1,18 @@
-// Index para rutas de trucky en peruserver
-const express = require('express');
-const router = express.Router();
+const { Router } = require('express');
 
-// Importar la nueva ruta webhook
-router.use('/webhook', require('./webhook'));
+const router = Router();
 
-// ...otras rutas existentes...
+router.get('/', (req, res) => {
+  res.json({
+    message: 'Modulo Trucky de PeruServer',
+    modules: {
+      '/webhook': 'Webhook interno para registrar trabajos de Trucky',
+      '/live-jobs': 'Trabajos en vivo y datos geograficos cacheados',
+      '/top-km': 'Top de kilometros por empresa',
+      '/top-km/monthly': 'Top mensual de kilometros por empresa',
+      '/public': 'API publica para empresas, top de usuarios y rutas por empresa',
+    },
+  });
+});
 
 module.exports = router;
