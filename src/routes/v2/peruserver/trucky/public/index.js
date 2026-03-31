@@ -13,7 +13,7 @@ const MAX_USERS_LIMIT = 50;
 const DEFAULT_ROUTES_LIMIT = 20;
 const MAX_ROUTES_LIMIT = 100;
 const DEFAULT_ROUTE_JOBS_LIMIT = 500;
-const MAX_ROUTE_JOBS_LIMIT = 500;
+const MAX_ROUTE_JOBS_LIMIT = 2000;
 const PAGE_SIZE = 1000;
 
 const SAFE_COMPANY_SELECT = [
@@ -394,6 +394,31 @@ const getJobMaxSpeedKmh = (row) => {
   return speed;
 };
 
+const getJobTotalDamage = (row) => {
+  const rawPayload = parseWebhookRawPayload(row.raw);
+  const rawData = rawPayload && typeof rawPayload === 'object' ? rawPayload.data || {} : {};
+  const damage = Number(row.total_damage ?? rawData.total_damage);
+  if (!Number.isFinite(damage) || damage < 0) return 0;
+  return damage;
+};
+
+const getJobDamageBreakdown = (row) => {
+  const rawPayload = parseWebhookRawPayload(row.raw);
+  const rawData = rawPayload && typeof rawPayload === 'object' ? rawPayload.data || {} : {};
+
+  const parseDamagePart = (value) => {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed) || parsed < 0) return 0;
+    return Math.round(parsed * 100) / 100;
+  };
+
+  return {
+    vehicleDamage: parseDamagePart(row.vehicle_damage ?? rawData.vehicle_damage),
+    trailersDamage: parseDamagePart(row.trailers_damage ?? rawData.trailers_damage),
+    cargoDamage: parseDamagePart(row.cargo_damage ?? rawData.cargo_damage),
+  };
+};
+
 const parseRouteJobDetails = (row) => {
   const rawPayload = parseWebhookRawPayload(row.raw);
   const rawData = rawPayload && typeof rawPayload === 'object' ? rawPayload.data || {} : {};
@@ -437,7 +462,7 @@ const normalizeRouteSortOrder = (rawValue, defaultValue = 'desc') => {
 
 const parseRouteSort = (query) => {
   const sortAlias = String(query.sort || '').trim().toLowerCase();
-  const sortByRaw = String(query.sortBy || '').trim().toLowerCase();
+  const sortByRaw = String(query.sortBy || query.sort || '').trim().toLowerCase();
   const sortOrderRaw = String(query.sortOrder || query.order || '').trim().toLowerCase();
 
   const aliasMap = {
@@ -455,6 +480,10 @@ const parseRouteSort = (query) => {
     max_speed_lowest: { sortBy: 'max_speed', sortOrder: 'asc' },
     speed_highest: { sortBy: 'max_speed', sortOrder: 'desc' },
     speed_lowest: { sortBy: 'max_speed', sortOrder: 'asc' },
+    damage_highest: { sortBy: 'damage', sortOrder: 'desc' },
+    damage_lowest: { sortBy: 'damage', sortOrder: 'asc' },
+    damage_desc: { sortBy: 'damage', sortOrder: 'desc' },
+    damage_asc: { sortBy: 'damage', sortOrder: 'asc' },
     jobs_most: { sortBy: 'jobs', sortOrder: 'desc' },
     jobs_least: { sortBy: 'jobs', sortOrder: 'asc' },
   };
@@ -480,6 +509,8 @@ const parseRouteSort = (query) => {
     speed: 'max_speed',
     max_speed: 'max_speed',
     max_speed_kmh: 'max_speed',
+    damage: 'damage',
+    total_damage: 'damage',
     jobs: 'jobs',
     total_jobs: 'jobs',
     route: 'route_key',
@@ -523,6 +554,9 @@ const compareRoutes = (left, right, routeSort) => {
   } else if (routeSort.sortBy === 'max_speed') {
     const speedComparison = compareNullableNumbers(left.maxSpeedKmh, right.maxSpeedKmh, routeSort.sortOrder);
     if (speedComparison !== 0) return speedComparison;
+  } else if (routeSort.sortBy === 'damage') {
+    const damageComparison = compareNullableNumbers(left.totalDamage, right.totalDamage, routeSort.sortOrder);
+    if (damageComparison !== 0) return damageComparison;
   } else if (routeSort.sortBy === 'jobs') {
     const jobsComparison = compareNullableNumbers(left.totalJobs, right.totalJobs, routeSort.sortOrder);
     if (jobsComparison !== 0) return jobsComparison;
@@ -689,6 +723,10 @@ const buildRoutesPayload = async ({
     'driven_distance_km',
     'real_driven_distance_km',
     'max_speed_kmh',
+    'vehicle_damage',
+    'trailers_damage',
+    'cargo_damage',
+    'total_damage',
     'status',
     'event_type',
     'created_at',
@@ -710,6 +748,7 @@ const buildRoutesPayload = async ({
     groupedRoutes.set(companyId, {
       company,
       totalDistanceKm: 0,
+      totalDamage: 0,
       totalJobs: 0,
       uniqueRouteKeys: new Set(),
       routes: [],
@@ -727,10 +766,13 @@ const buildRoutesPayload = async ({
     const distanceKm = getJobDistanceKm(row);
     const plannedDistanceKm = getJobPlannedDistanceKm(row);
     const maxSpeedKmh = getJobMaxSpeedKmh(row);
+    const totalDamage = getJobTotalDamage(row);
+    const damageBreakdown = getJobDamageBreakdown(row);
     const group = groupedRoutes.get(companyId);
     const updatedAt = row.updated_at || row.created_at || null;
 
     group.totalDistanceKm += distanceKm;
+    group.totalDamage += totalDamage;
     group.totalJobs += 1;
     group.uniqueRouteKeys.add(route.routeKey);
     routeKeys.add(route.routeKey);
@@ -754,6 +796,8 @@ const buildRoutesPayload = async ({
       totalDistanceKm: Math.floor(distanceKm),
       totalPlannedDistanceKm: Math.floor(plannedDistanceKm),
       maxSpeedKmh: maxSpeedKmh == null ? null : Math.round(maxSpeedKmh * 100) / 100,
+      totalDamage: Math.round(totalDamage * 100) / 100,
+      ...damageBreakdown,
       totalJobs: 1,
     });
   }
@@ -765,6 +809,7 @@ const buildRoutesPayload = async ({
       company: entry.company,
       stats: {
         totalDistanceKm: Math.floor(entry.totalDistanceKm),
+        totalDamage: Math.round(entry.totalDamage * 100) / 100,
         totalJobs: entry.totalJobs,
         totalRoutes: entry.uniqueRouteKeys.size,
         totalRouteEntries: entry.routes.length,
@@ -834,7 +879,7 @@ router.get('/', (req, res) => {
       companies: '/v2/peruserver/trucky/public/companies?search=movil',
       company: '/v2/peruserver/trucky/public/companies/41407',
       usersTop: '/v2/peruserver/trucky/public/users/top?companyIds=41407,42815&month=3&year=2026&usersLimit=10',
-      routes: '/v2/peruserver/trucky/public/routes?companyIds=41407&month=3&year=2026&routesLimit=20&jobsLimit=500&sort=max_speed_highest',
+      routes: '/v2/peruserver/trucky/public/routes?companyIds=41407&month=3&year=2026&routesLimit=20&jobsLimit=2000&sort=damage_highest',
     },
   });
 });
