@@ -269,7 +269,7 @@ const fetchCompanyById = async (companyId) => {
   return rows[0] ? mapCompany(rows[0]) : null;
 };
 
-const fetchJobs = async ({ select, period, companyIds, status, jobsLimit = null, jobsOrder = 'asc' }) => {
+const fetchJobs = async ({ select, period, companyIds = [], status, jobsLimit = null, jobsOrder = 'asc' }) => {
   const headers = getSupabaseHeaders();
   const jobs = [];
   let offset = 0;
@@ -277,6 +277,7 @@ const fetchJobs = async ({ select, period, companyIds, status, jobsLimit = null,
     ? Math.min(Number(jobsLimit), MAX_ROUTE_JOBS_LIMIT)
     : null;
   const safeJobsOrder = String(jobsOrder || 'asc').trim().toLowerCase() === 'desc' ? 'desc' : 'asc';
+  const safeCompanyIds = Array.isArray(companyIds) ? companyIds : [];
 
   while (true) {
     const params = new URLSearchParams();
@@ -287,12 +288,12 @@ const fetchJobs = async ({ select, period, companyIds, status, jobsLimit = null,
 
     if (period.startIso) params.append('created_at', `gte.${period.startIso}`);
     if (period.endIso) params.append('created_at', `lt.${period.endIso}`);
-    if (companyIds.length > 0) params.append('company_id', `in.(${companyIds.join(',')})`);
+    if (safeCompanyIds.length > 0) params.append('company_id', `in.(${safeCompanyIds.join(',')})`);
     if (status !== 'all') params.append('status', `eq.${status}`);
 
     const response = await axios.get(`${getSupabaseBaseUrl()}/rest/v1/jobs_webhooks?${params.toString()}`, {
       headers,
-      timeout: 20000,
+      timeout: 30000,
     });
 
     const rows = Array.isArray(response.data) ? response.data : [];
@@ -374,6 +375,95 @@ const parseDriverFromRaw = (row) => {
     avatarUrl: driver.avatar_url || null,
     publicUrl: driver.public_url || null,
   };
+};
+
+const driverProfileCache = new Map();
+const DRIVER_PROFILE_TTL_MS = 60 * 60 * 1000; // 1 hora
+
+const getDriverProfile = (driverId) => {
+  const cached = driverProfileCache.get(Number(driverId));
+  if (cached && Date.now() - cached.cachedAt < DRIVER_PROFILE_TTL_MS) {
+    return cached.profile;
+  }
+  return null;
+};
+
+const setDriverProfile = (driverId, profile) => {
+  if (!driverId) return;
+  driverProfileCache.set(Number(driverId), {
+    profile,
+    cachedAt: Date.now(),
+  });
+};
+
+const enrichDriverProfiles = async (driverIds) => {
+  const numericIds = Array.from(new Set(
+    (driverIds || []).map((id) => Number(id)).filter((id) => Number.isFinite(id) && id > 0)
+  ));
+  if (numericIds.length === 0) return new Map();
+
+  const resultMap = new Map();
+  const missingIds = [];
+
+  for (const id of numericIds) {
+    const cached = getDriverProfile(id);
+    if (cached) {
+      resultMap.set(id, cached);
+    } else {
+      missingIds.push(id);
+    }
+  }
+
+  if (missingIds.length === 0) {
+    return resultMap;
+  }
+
+  const headers = getSupabaseHeaders();
+  const batches = chunkArray(missingIds, 50);
+
+  for (const batch of batches) {
+    try {
+      const params = new URLSearchParams();
+      params.set('select', 'driver_id,raw,created_at');
+      params.append('driver_id', `in.(${batch.join(',')})`);
+      params.set('order', 'created_at.desc');
+      params.set('limit', String(batch.length * 5));
+
+      const response = await axios.get(`${getSupabaseBaseUrl()}/rest/v1/jobs_webhooks?${params.toString()}`, {
+        headers,
+        timeout: 15000,
+      });
+
+      const rows = Array.isArray(response.data) ? response.data : [];
+      for (const row of rows) {
+        const driverId = Number(row.driver_id);
+        if (!driverId || resultMap.has(driverId)) continue;
+
+        const driver = parseDriverFromRaw(row);
+        if (driver && driver.id) {
+          setDriverProfile(driverId, driver);
+          resultMap.set(driverId, driver);
+        }
+      }
+    } catch (err) {
+      console.warn('Error fetching driver profiles batch:', err.message);
+    }
+  }
+
+  for (const id of missingIds) {
+    if (!resultMap.has(id)) {
+      const fallback = {
+        id,
+        name: `Usuario ${id}`,
+        avatarUrl: null,
+        publicUrl: `https://hub.truckyapp.com/user/${id}`,
+      };
+      setDriverProfile(id, fallback);
+      resultMap.set(id, fallback);
+    }
+  }
+
+  return resultMap;
 };
 
 const getJobDistanceKm = (row) => {
@@ -572,7 +662,37 @@ const compareRoutes = (left, right, routeSort) => {
   return left.routeKey.localeCompare(right.routeKey, 'es');
 };
 
-const buildUsersTopPayload = async ({ companyIds, period, status, usersLimit, companiesLimit }) => {
+const userRankingMemoryCache = new Map();
+const usersTopMemoryCache = new Map();
+const CACHE_TTL_RANKING_MS = 15 * 60 * 1000; // 15 minutos
+
+const getUserRankingCacheKey = ({ companyIds, period, status, limit, includeNoCompany }) => {
+  const compKey = companyIds && companyIds.length > 0 ? companyIds.slice().sort().join(',') : 'all';
+  const periodKey = period.allTime
+    ? 'all_time'
+    : period.label === 'custom'
+      ? `custom_${period.from}_${period.to}`
+      : `month_${period.year}_${period.month}`;
+  return `ranking_${compKey}_${periodKey}_${status}_${includeNoCompany}_${limit}`;
+};
+
+const getUsersTopCacheKey = ({ companyIds, period, status, usersLimit, companiesLimit }) => {
+  const compKey = companyIds && companyIds.length > 0 ? companyIds.slice().sort().join(',') : 'all';
+  const periodKey = period.allTime
+    ? 'all_time'
+    : period.label === 'custom'
+      ? `custom_${period.from}_${period.to}`
+      : `month_${period.year}_${period.month}`;
+  return `top_${compKey}_${periodKey}_${status}_${usersLimit}_${companiesLimit}`;
+};
+
+const buildUsersRankingPayload = async ({
+  companyIds = [],
+  period,
+  status = 'completed',
+  limit = DEFAULT_COMPANIES_LIMIT,
+  includeNoCompany = true,
+}) => {
   const select = [
     'job_id',
     'company_id',
@@ -583,12 +703,138 @@ const buildUsersTopPayload = async ({ companyIds, period, status, usersLimit, co
     'event_type',
     'created_at',
     'updated_at',
-    'raw',
+  ].join(',');
+
+  const jobs = await fetchJobs({
+    select,
+    period,
+    companyIds: companyIds.length > 0 ? companyIds : [],
+    status,
+  });
+
+  const driversMap = new Map();
+
+  for (const row of jobs) {
+    const driverId = Number(row.driver_id);
+    if (!Number.isFinite(driverId) || driverId <= 0) continue;
+
+    const companyId = Number(row.company_id);
+    const hasCompany = Number.isFinite(companyId) && companyId > 0;
+
+    if (!includeNoCompany && !hasCompany) {
+      continue;
+    }
+
+    const distanceKm = getJobDistanceKm(row);
+    const jobTimestamp = row.updated_at || row.created_at || null;
+
+    if (!driversMap.has(driverId)) {
+      driversMap.set(driverId, {
+        id: driverId,
+        totalDistanceKm: 0,
+        totalJobs: 0,
+        companyIds: new Set(),
+        jobsWithoutCompany: 0,
+        lastJobAt: jobTimestamp,
+      });
+    }
+
+    const entry = driversMap.get(driverId);
+    entry.totalDistanceKm += distanceKm;
+    entry.totalJobs += 1;
+
+    if (hasCompany) {
+      entry.companyIds.add(companyId);
+    } else {
+      entry.jobsWithoutCompany += 1;
+    }
+
+    if (jobTimestamp && (!entry.lastJobAt || jobTimestamp > entry.lastJobAt)) {
+      entry.lastJobAt = jobTimestamp;
+    }
+  }
+
+  const sortedDrivers = [...driversMap.values()].sort((left, right) => {
+    if (right.totalDistanceKm !== left.totalDistanceKm) {
+      return right.totalDistanceKm - left.totalDistanceKm;
+    }
+    return right.totalJobs - left.totalJobs;
+  });
+
+  const topSlice = sortedDrivers.slice(0, limit);
+  const topDriverIds = topSlice.map((d) => d.id);
+  const profilesMap = await enrichDriverProfiles(topDriverIds);
+
+  const items = topSlice.map((d) => {
+    const profile = profilesMap.get(d.id) || {
+      id: d.id,
+      name: `Usuario ${d.id}`,
+      avatarUrl: null,
+      publicUrl: `https://hub.truckyapp.com/user/${d.id}`,
+    };
+
+    return {
+      id: d.id,
+      name: profile.name,
+      avatarUrl: profile.avatarUrl,
+      publicUrl: profile.publicUrl,
+      totalDistanceKm: Math.floor(d.totalDistanceKm),
+      totalJobs: d.totalJobs,
+      companyCount: d.companyIds.size,
+      jobsWithoutCompany: d.jobsWithoutCompany,
+      lastJobAt: d.lastJobAt,
+    };
+  });
+
+  const generatedAt = nowUtc();
+
+  return {
+    ok: true,
+    filters: {
+      companyIds,
+      status,
+      includeNoCompany,
+      limit,
+    },
+    period: {
+      label: period.label,
+      from: period.from,
+      to: period.to,
+      allTime: period.allTime,
+      month: period.month || null,
+      year: period.year || null,
+      timezone: 'America/Lima',
+    },
+    jobsAnalyzed: jobs.length,
+    totalUsers: items.length,
+    items,
+    timestamp: Math.floor(generatedAt.getTime() / 1000),
+    timestampHuman: formatTimestampHuman(generatedAt),
+  };
+};
+
+const buildUsersTopPayload = async ({
+  companyIds = [],
+  period,
+  status = 'completed',
+  usersLimit = DEFAULT_USERS_LIMIT,
+  companiesLimit = DEFAULT_COMPANIES_LIMIT,
+}) => {
+  const select = [
+    'job_id',
+    'company_id',
+    'driver_id',
+    'driven_distance_km',
+    'real_driven_distance_km',
+    'status',
+    'event_type',
+    'created_at',
+    'updated_at',
   ].join(',');
 
   const [companies, jobs] = await Promise.all([
     fetchCompanies(companyIds.length > 0 ? companyIds : null),
-    fetchJobs({ select, period, companyIds, status }),
+    fetchJobs({ select, period, companyIds: companyIds.length > 0 ? companyIds : [], status }),
   ]);
 
   const companiesMap = new Map(companies.map((company) => [company.id, company]));
@@ -608,11 +854,12 @@ const buildUsersTopPayload = async ({ companyIds, period, status, usersLimit, co
 
   for (const row of jobs) {
     const companyId = Number(row.company_id);
-    const driver = parseDriverFromRaw(row);
+    const driverId = Number(row.driver_id);
     const distanceKm = getJobDistanceKm(row);
+    const jobTimestamp = row.updated_at || row.created_at || null;
 
     if (!Number.isFinite(companyId) || companyId <= 0) continue;
-    if (!Number.isFinite(driver.id) || driver.id <= 0) continue;
+    if (!Number.isFinite(driverId) || driverId <= 0) continue;
 
     if (!rankingByCompany.has(companyId)) {
       const company = companiesMap.get(companyId) || { id: companyId, name: `Empresa ${companyId}` };
@@ -628,25 +875,37 @@ const buildUsersTopPayload = async ({ companyIds, period, status, usersLimit, co
     companyEntry.totalDistanceKm += distanceKm;
     companyEntry.totalJobs += 1;
 
-    if (!companyEntry.users.has(driver.id)) {
-      companyEntry.users.set(driver.id, {
-        id: driver.id,
-        name: driver.name,
-        avatarUrl: driver.avatarUrl,
-        publicUrl: driver.publicUrl,
+    if (!companyEntry.users.has(driverId)) {
+      companyEntry.users.set(driverId, {
+        id: driverId,
         totalDistanceKm: 0,
         totalJobs: 0,
-        lastJobAt: row.updated_at || row.created_at || null,
+        lastJobAt: jobTimestamp,
       });
     }
 
-    const userEntry = companyEntry.users.get(driver.id);
+    const userEntry = companyEntry.users.get(driverId);
     userEntry.totalDistanceKm += distanceKm;
     userEntry.totalJobs += 1;
-    if ((row.updated_at || row.created_at || '') > (userEntry.lastJobAt || '')) {
-      userEntry.lastJobAt = row.updated_at || row.created_at || null;
+    if (jobTimestamp && (!userEntry.lastJobAt || jobTimestamp > userEntry.lastJobAt)) {
+      userEntry.lastJobAt = jobTimestamp;
     }
   }
+
+  const allTopDriverIds = new Set();
+  for (const entry of rankingByCompany.values()) {
+    const sortedUsers = [...entry.users.values()]
+      .sort((left, right) => {
+        if (right.totalDistanceKm !== left.totalDistanceKm) return right.totalDistanceKm - left.totalDistanceKm;
+        return right.totalJobs - left.totalJobs;
+      })
+      .slice(0, usersLimit);
+    for (const u of sortedUsers) {
+      allTopDriverIds.add(u.id);
+    }
+  }
+
+  const profilesMap = await enrichDriverProfiles([...allTopDriverIds]);
 
   const items = [...rankingByCompany.values()]
     .map((entry) => ({
@@ -657,14 +916,26 @@ const buildUsersTopPayload = async ({ companyIds, period, status, usersLimit, co
         totalUsers: entry.users.size,
       },
       topUsers: [...entry.users.values()]
-        .map((user) => ({
-          ...user,
-          totalDistanceKm: Math.floor(user.totalDistanceKm),
-        }))
+        .map((user) => {
+          const profile = profilesMap.get(user.id) || {
+            name: `Usuario ${user.id}`,
+            avatarUrl: null,
+            publicUrl: `https://hub.truckyapp.com/user/${user.id}`,
+          };
+          return {
+            id: user.id,
+            name: profile.name,
+            avatarUrl: profile.avatarUrl,
+            publicUrl: profile.publicUrl,
+            totalDistanceKm: Math.floor(user.totalDistanceKm),
+            totalJobs: user.totalJobs,
+            lastJobAt: user.lastJobAt,
+          };
+        })
         .sort((left, right) => {
           if (right.totalDistanceKm !== left.totalDistanceKm) return right.totalDistanceKm - left.totalDistanceKm;
           if (right.totalJobs !== left.totalJobs) return right.totalJobs - left.totalJobs;
-          return left.name.localeCompare(right.name, 'es');
+          return (left.name || '').localeCompare(right.name || '', 'es');
         })
         .slice(0, usersLimit),
     }))
@@ -873,12 +1144,14 @@ router.get('/', (req, res) => {
       '/companies': 'Lista publica de empresas registradas',
       '/companies/:companyId': 'Informacion publica de una empresa',
       '/users/top': 'Top de usuarios por empresa en kilometros',
+      '/users/ranking': 'Ranking global de usuarios en kilometros (todas las empresas o sin empresa)',
       '/routes': 'Rutas de una o varias empresas',
     },
     examples: {
       companies: '/v2/peruserver/trucky/public/companies?search=movil',
       company: '/v2/peruserver/trucky/public/companies/41407',
       usersTop: '/v2/peruserver/trucky/public/users/top?companyIds=41407,42815&month=3&year=2026&usersLimit=10',
+      usersRanking: '/v2/peruserver/trucky/public/users/ranking?limit=100&includeNoCompany=true&allTime=true',
       routes: '/v2/peruserver/trucky/public/routes?companyIds=41407&month=3&year=2026&routesLimit=20&jobsLimit=2000&sort=damage_highest',
     },
   });
@@ -962,6 +1235,51 @@ router.get('/companies/:companyId', async (req, res) => {
   }
 });
 
+router.get('/users/ranking', async (req, res) => {
+  try {
+    const companyIds = parseCsvNumberList(req.query.companyIds ?? req.query.ids ?? req.query.companyId);
+    const limit = parsePositiveInt(req.query.limit ?? req.query.usersLimit, DEFAULT_COMPANIES_LIMIT, 1, 500);
+    const includeNoCompany = parseBoolean(req.query.includeNoCompany ?? req.query.noCompany, true);
+    const status = normalizeStatus(req.query.status);
+    const period = parsePeriod(req.query);
+    const forceRefresh = parseBoolean(req.query.refresh, false);
+
+    if (period.error) {
+      return res.status(400).json({ ok: false, error: period.error });
+    }
+
+    const cacheKey = getUserRankingCacheKey({ companyIds, period, status, limit, includeNoCompany });
+    const cachedEntry = userRankingMemoryCache.get(cacheKey);
+
+    if (!forceRefresh && cachedEntry && cachedEntry.payload && Date.now() < cachedEntry.expiresAt) {
+      res.set('Cache-Control', 'public, s-maxage=180, stale-while-revalidate=60');
+      return res.json(cachedEntry.payload);
+    }
+
+    const payload = await buildUsersRankingPayload({
+      companyIds,
+      period,
+      status,
+      limit,
+      includeNoCompany,
+    });
+
+    userRankingMemoryCache.set(cacheKey, {
+      payload,
+      expiresAt: Date.now() + CACHE_TTL_RANKING_MS,
+    });
+
+    res.set('Cache-Control', 'public, s-maxage=180, stale-while-revalidate=60');
+    return res.json(payload);
+  } catch (error) {
+    console.error('Error en /users/ranking:', error);
+    return res.status(500).json({
+      ok: false,
+      error: error.message || 'Error interno',
+    });
+  }
+});
+
 router.get('/users/top', async (req, res) => {
   try {
     const companyIds = parseCsvNumberList(req.query.companyIds ?? req.query.ids ?? req.query.companyId);
@@ -969,9 +1287,18 @@ router.get('/users/top', async (req, res) => {
     const companiesLimit = parsePositiveInt(req.query.companiesLimit ?? req.query.limitCompanies, DEFAULT_COMPANIES_LIMIT, 1, MAX_COMPANIES_LIMIT);
     const status = normalizeStatus(req.query.status);
     const period = parsePeriod(req.query);
+    const forceRefresh = parseBoolean(req.query.refresh, false);
 
     if (period.error) {
       return res.status(400).json({ ok: false, error: period.error });
+    }
+
+    const cacheKey = getUsersTopCacheKey({ companyIds, period, status, usersLimit, companiesLimit });
+    const cachedEntry = usersTopMemoryCache.get(cacheKey);
+
+    if (!forceRefresh && cachedEntry && cachedEntry.payload && Date.now() < cachedEntry.expiresAt) {
+      res.set('Cache-Control', 'public, s-maxage=180, stale-while-revalidate=60');
+      return res.json(cachedEntry.payload);
     }
 
     const payload = await buildUsersTopPayload({
@@ -982,9 +1309,15 @@ router.get('/users/top', async (req, res) => {
       companiesLimit,
     });
 
+    usersTopMemoryCache.set(cacheKey, {
+      payload,
+      expiresAt: Date.now() + CACHE_TTL_RANKING_MS,
+    });
+
     res.set('Cache-Control', 'public, s-maxage=180, stale-while-revalidate=60');
     return res.json(payload);
   } catch (error) {
+    console.error('Error en /users/top:', error);
     return res.status(500).json({
       ok: false,
       error: error.message || 'Error interno',

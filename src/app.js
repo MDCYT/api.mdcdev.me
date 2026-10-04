@@ -8,7 +8,6 @@ require('./utils/instrument');
 
 const { statusCodeHandler } = require(join(__dirname, 'utils', 'status-code-handler'));
 const errorHandler = require(join(__dirname, 'utils', 'api', 'error-handler'));
-const { createReverseProxy } = require(join(__dirname, 'utils', 'reverse-proxy'));
 
 const app = express();
 
@@ -41,10 +40,6 @@ app.use((req, res, next) => {
     res.setHeader('Access-Control-Allow-Credentials', true);
     next();
 });
-
-app.use('/v2/peruserver', createReverseProxy({
-    targetOrigin: 'https://api-data.peruserver.de',
-}));
 
 app.use(express.json());
 
