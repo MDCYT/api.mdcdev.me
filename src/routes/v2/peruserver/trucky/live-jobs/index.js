@@ -43,8 +43,19 @@ const routeFullRedisCache = process.env.REDIS_URL
   ? new Cache('trucky-route-full', 3, ROUTE_REDIS_TTL_SECONDS)
   : null;
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || '';
-const SUPABASE_ANON_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+const getSupabaseBaseUrl = () => (
+  process.env.NEXT_PUBLIC_SUPABASE_URL ||
+  process.env.SUPABASE_URL ||
+  ''
+).replace(/\/+$/, '');
+
+const getSupabaseKey = () => (
+  process.env.SUPABASE_SERVICE_ROLE_KEY ||
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+  process.env.SUPABASE_ANON_KEY ||
+  process.env.SUPABASE_KEY ||
+  ''
+);
 
 startPeriodicProxyUpdate();
 
@@ -105,16 +116,16 @@ const buildInFilter = (values) => {
 };
 
 const getSupabaseCacheEnv = () => {
-  const url = (SUPABASE_URL || '').replace(/\/+$/, '');
-  const anonKey = SUPABASE_ANON_KEY || '';
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+  const url = getSupabaseBaseUrl();
+  const key = getSupabaseKey();
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || key;
 
-  if (!url) return null;
+  if (!url || !key) return null;
 
   return {
     url,
-    anonKey,
-    key: anonKey,
+    anonKey: key,
+    key,
     serviceRoleKey,
   };
 };
@@ -697,7 +708,9 @@ const upsertUnresolvedPoints = async (points) => {
 };
 
 const fetchRegisteredCompaniesFromSupabase = async () => {
-  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+  const supabaseUrl = getSupabaseBaseUrl();
+  const supabaseKey = getSupabaseKey();
+  if (!supabaseUrl || !supabaseKey) {
     return [];
   }
 
@@ -706,7 +719,7 @@ const fetchRegisteredCompaniesFromSupabase = async () => {
       `${SUPABASE_URL.replace(/\/+$/, '')}/rest/v1/trucky_companies?select=company_id,name&order=company_id.asc`,
       {
         headers: {
-          apikey: SUPABASE_ANON_KEY,
+          apikey: getSupabaseKey(),
           Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
         },
         timeout: 15000,
@@ -833,7 +846,9 @@ const mapWebhookJob = (row, company) => {
 };
 
 const fetchLiveJobsFromSupabase = async ({ cutoffMs, companyMap }) => {
-  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+  const supabaseUrl = getSupabaseBaseUrl();
+  const supabaseKey = getSupabaseKey();
+  if (!supabaseUrl || !supabaseKey) {
     throw new Error('Falta configurar SUPABASE_URL o SUPABASE_ANON_KEY');
   }
 
@@ -846,7 +861,7 @@ const fetchLiveJobsFromSupabase = async ({ cutoffMs, companyMap }) => {
       `${SUPABASE_URL.replace(/\/+$/, '')}/rest/v1/jobs_webhooks?status=eq.in_progress&select=job_id,company_id,status,source_city_id,destination_city_id,cargo_id,planned_distance_km,created_at,updated_at,raw&order=updated_at.desc&limit=${pageSize}&offset=${offset}`,
       {
         headers: {
-          apikey: SUPABASE_ANON_KEY,
+          apikey: getSupabaseKey(),
           Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
         },
         timeout: 20000,

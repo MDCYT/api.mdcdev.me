@@ -3,8 +3,6 @@ const axios = require('axios');
 
 const router = Router();
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || '';
-const SUPABASE_ANON_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
 const CACHE_TTL_CURRENT_MONTH_MS = 30 * 60 * 1000;
@@ -16,6 +14,49 @@ const nowUtc = () => new Date();
 const formatTimestampHuman = (date) => {
   const pad = (num) => String(num).padStart(2, '0');
   return `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())} ${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())}:${pad(date.getUTCSeconds())}`;
+};
+
+const getSupabaseBaseUrl = () => (
+  process.env.NEXT_PUBLIC_SUPABASE_URL ||
+  process.env.SUPABASE_URL ||
+  ''
+).replace(/\/+$/, '');
+
+const getSupabaseKey = () => (
+  process.env.SUPABASE_SERVICE_ROLE_KEY ||
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+  process.env.SUPABASE_ANON_KEY ||
+  process.env.SUPABASE_KEY ||
+  ''
+);
+
+const getSupabaseHeaders = () => {
+  const url = getSupabaseBaseUrl();
+  const key = getSupabaseKey();
+  if (!url || !key) {
+    throw new Error('Falta configurar SUPABASE_URL o SUPABASE_ANON_KEY');
+  }
+
+  return {
+    apikey: key,
+    Authorization: `Bearer ${key}`,
+    'Content-Type': 'application/json',
+  };
+};
+
+const getSupabaseCacheEnv = () => {
+  const url = getSupabaseBaseUrl();
+  const key = getSupabaseKey();
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || key;
+
+  if (!url || !key) return null;
+
+  return {
+    url,
+    anonKey: key,
+    key,
+    serviceRoleKey,
+  };
 };
 
 const parseStartMonthYear = (query) => {
@@ -39,8 +80,8 @@ const parseStartMonthYear = (query) => {
     year = month > currentMonth ? currentYear - 1 : currentYear;
   }
 
-  if (year < 2000 || year > currentYear) {
-    return { error: `El parametro year debe estar entre 2000 y ${currentYear}` };
+  if (year < 2000 || year > currentYear + 20) {
+    return { error: `El parametro year debe estar entre 2000 y ${currentYear + 20}` };
   }
 
   return { month, year };
@@ -79,33 +120,6 @@ const generateMonthRanges = (startMonth, startYear, endMonth, endYear) => {
   return ranges;
 };
 
-const getSupabaseCacheEnv = () => {
-  const url = (SUPABASE_URL || '').replace(/\/+$/, '');
-  const anonKey = SUPABASE_ANON_KEY || '';
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
-
-  if (!url) return null;
-
-  return {
-    url,
-    anonKey,
-    key: anonKey,
-    serviceRoleKey,
-  };
-};
-
-const getSupabaseHeaders = () => {
-  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-    throw new Error('Falta configurar SUPABASE_URL o SUPABASE_ANON_KEY');
-  }
-
-  return {
-    apikey: SUPABASE_ANON_KEY,
-    Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-    'Content-Type': 'application/json',
-  };
-};
-
 const chunkArray = (items, size) => {
   const chunks = [];
   for (let index = 0; index < items.length; index += size) {
@@ -115,7 +129,7 @@ const chunkArray = (items, size) => {
 };
 
 const fetchAllJobsFromStart = async (startDateIso) => {
-  const supabaseUrl = SUPABASE_URL.replace(/\/+$/, '');
+  const supabaseUrl = getSupabaseBaseUrl();
   const headers = getSupabaseHeaders();
   const pageSize = 1000;
   const jobs = [];
@@ -126,7 +140,7 @@ const fetchAllJobsFromStart = async (startDateIso) => {
       `${supabaseUrl}/rest/v1/jobs_webhooks?created_at=gte.${startDateIso}&select=company_id,driven_distance_km,real_driven_distance_km,job_id,created_at,status,event_type&order=created_at.asc&limit=${pageSize}&offset=${offset}`,
       {
         headers,
-        timeout: 20000,
+        timeout: 30000,
       }
     );
 
@@ -144,7 +158,7 @@ const fetchAllJobsFromStart = async (startDateIso) => {
 };
 
 const fetchCompaniesMap = async (companyIds = null) => {
-  const supabaseUrl = SUPABASE_URL.replace(/\/+$/, '');
+  const supabaseUrl = getSupabaseBaseUrl();
   const headers = getSupabaseHeaders();
   const companiesMap = new Map();
 
@@ -392,6 +406,7 @@ router.get('/', async (req, res) => {
       },
     });
   } catch (error) {
+    console.error('Error en /top-km:', error);
     return res.status(500).json({
       ok: false,
       error: error.message || 'Error interno',

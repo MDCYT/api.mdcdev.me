@@ -3,8 +3,6 @@ const axios = require('axios');
 
 const router = Router();
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || '';
-const SUPABASE_ANON_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
 const CACHE_TTL_MS = 30 * 60 * 1000;
@@ -16,6 +14,49 @@ const nowUtc = () => new Date();
 const formatTimestampHuman = (date) => {
   const pad = (num) => String(num).padStart(2, '0');
   return `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())} ${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())}:${pad(date.getUTCSeconds())}`;
+};
+
+const getSupabaseBaseUrl = () => (
+  process.env.NEXT_PUBLIC_SUPABASE_URL ||
+  process.env.SUPABASE_URL ||
+  ''
+).replace(/\/+$/, '');
+
+const getSupabaseKey = () => (
+  process.env.SUPABASE_SERVICE_ROLE_KEY ||
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+  process.env.SUPABASE_ANON_KEY ||
+  process.env.SUPABASE_KEY ||
+  ''
+);
+
+const getSupabaseHeaders = () => {
+  const url = getSupabaseBaseUrl();
+  const key = getSupabaseKey();
+  if (!url || !key) {
+    throw new Error('Falta configurar SUPABASE_URL o SUPABASE_ANON_KEY');
+  }
+
+  return {
+    apikey: key,
+    Authorization: `Bearer ${key}`,
+    'Content-Type': 'application/json',
+  };
+};
+
+const getSupabaseCacheEnv = () => {
+  const url = getSupabaseBaseUrl();
+  const key = getSupabaseKey();
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || key;
+
+  if (!url || !key) return null;
+
+  return {
+    url,
+    anonKey: key,
+    key,
+    serviceRoleKey,
+  };
 };
 
 const parseMonthYear = (query) => {
@@ -64,33 +105,6 @@ const chunkArray = (items, size) => {
   return chunks;
 };
 
-const getSupabaseCacheEnv = () => {
-  const url = (SUPABASE_URL || '').replace(/\/+$/, '');
-  const anonKey = SUPABASE_ANON_KEY || '';
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
-
-  if (!url) return null;
-
-  return {
-    url,
-    anonKey,
-    key: anonKey,
-    serviceRoleKey,
-  };
-};
-
-const getSupabaseHeaders = () => {
-  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-    throw new Error('Falta configurar SUPABASE_URL o SUPABASE_ANON_KEY');
-  }
-
-  return {
-    apikey: SUPABASE_ANON_KEY,
-    Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-    'Content-Type': 'application/json',
-  };
-};
-
 const fetchMonthlyJobs = async (month, year) => {
   const startDate = new Date(Date.UTC(year, month - 1, 1));
   const endDate = new Date(Date.UTC(year, month, 1));
@@ -100,10 +114,10 @@ const fetchMonthlyJobs = async (month, year) => {
 
   while (true) {
     const response = await axios.get(
-      `${SUPABASE_URL.replace(/\/+$/, '')}/rest/v1/jobs_webhooks?created_at=gte.${startDate.toISOString()}&created_at=lt.${endDate.toISOString()}&select=company_id,driven_distance_km,real_driven_distance_km,job_id,created_at,status,event_type&order=created_at.asc&limit=${pageSize}&offset=${offset}`,
+      `${getSupabaseBaseUrl()}/rest/v1/jobs_webhooks?created_at=gte.${startDate.toISOString()}&created_at=lt.${endDate.toISOString()}&select=company_id,driven_distance_km,real_driven_distance_km,job_id,created_at,status,event_type&order=created_at.asc&limit=${pageSize}&offset=${offset}`,
       {
         headers: getSupabaseHeaders(),
-        timeout: 20000,
+        timeout: 30000,
       }
     );
 
@@ -127,8 +141,8 @@ const fetchCompaniesMap = async (companyIds = null) => {
   for (const batch of batches) {
     const response = await axios.get(
       batch == null
-        ? `${SUPABASE_URL.replace(/\/+$/, '')}/rest/v1/trucky_companies?select=company_id,name,tag,members_count&order=company_id.asc`
-        : `${SUPABASE_URL.replace(/\/+$/, '')}/rest/v1/trucky_companies?company_id=in.(${batch.join(',')})&select=company_id,name,tag,members_count`,
+        ? `${getSupabaseBaseUrl()}/rest/v1/trucky_companies?select=company_id,name,tag,members_count&order=company_id.asc`
+        : `${getSupabaseBaseUrl()}/rest/v1/trucky_companies?company_id=in.(${batch.join(',')})&select=company_id,name,tag,members_count`,
       {
         headers: getSupabaseHeaders(),
         timeout: 15000,
@@ -361,6 +375,7 @@ router.get('/', async (req, res) => {
       },
     });
   } catch (error) {
+    console.error('Error en /top-km/monthly:', error);
     return res.status(500).json({
       ok: false,
       error: error.message || 'Error interno',

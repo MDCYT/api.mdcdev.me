@@ -2,9 +2,19 @@
 const express = require("express");
 const router = express.Router();
 
-const SUPABASE_URL =
-  process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || "";
-const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+const getSupabaseBaseUrl = () => (
+  process.env.NEXT_PUBLIC_SUPABASE_URL ||
+  process.env.SUPABASE_URL ||
+  ""
+).replace(/\/+$/, "");
+
+const getSupabaseKey = () => (
+  process.env.SUPABASE_SERVICE_ROLE_KEY ||
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+  process.env.SUPABASE_ANON_KEY ||
+  process.env.SUPABASE_KEY ||
+  ""
+);
 
 // Esta ruta recibirá todos los POST enviados al webhook de Trucky
 router.post("/", async (req, res) => {
@@ -332,13 +342,20 @@ router.post("/", async (req, res) => {
     */
 
     const companyId = req.headers["x-trucky-company-id"];
+    const supabaseUrl = getSupabaseBaseUrl();
+    const supabaseKey = getSupabaseKey();
+
+    if (!supabaseUrl || !supabaseKey) {
+      return res.status(500).json({ error: "Falta configurar SUPABASE_URL o SUPABASE_SERVICE_ROLE_KEY" });
+    }
+
     const companyRes = await fetch(
-      `${SUPABASE_URL}/rest/v1/trucky_companies?company_id=eq.${companyId}`,
+      `${supabaseUrl}/rest/v1/trucky_companies?company_id=eq.${companyId}`,
       {
         headers: {
           "Content-Type": "application/json",
-          apikey: SUPABASE_SERVICE_ROLE_KEY,
-          Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+          apikey: supabaseKey,
+          Authorization: `Bearer ${supabaseKey}`,
         },
       }
     );
@@ -398,23 +415,23 @@ router.post("/", async (req, res) => {
     };
 
     // Buscar si ya existe el job_id
-    const jobRes = await fetch(`${SUPABASE_URL}/rest/v1/jobs_webhooks?job_id=eq.${jobId}`, {
+    const jobRes = await fetch(`${supabaseUrl}/rest/v1/jobs_webhooks?job_id=eq.${jobId}`, {
       headers: {
         "Content-Type": "application/json",
-        apikey: SUPABASE_SERVICE_ROLE_KEY,
-        Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+        apikey: supabaseKey,
+        Authorization: `Bearer ${supabaseKey}`,
       },
     });
     const jobExists = await jobRes.json();
 
     if (jobExists.length > 0) {
       // Si existe, actualizar (PATCH)
-      const patchRes = await fetch(`${SUPABASE_URL}/rest/v1/jobs_webhooks?job_id=eq.${jobId}`, {
+      const patchRes = await fetch(`${supabaseUrl}/rest/v1/jobs_webhooks?job_id=eq.${jobId}`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
-          apikey: SUPABASE_SERVICE_ROLE_KEY,
-          Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+          apikey: supabaseKey,
+          Authorization: `Bearer ${supabaseKey}`,
         },
         body: JSON.stringify(jobData),
       });
@@ -426,12 +443,12 @@ router.post("/", async (req, res) => {
     } else {
       // Si no existe, insertar (POST)
       jobData.created_at = new Date();
-      const insertRes = await fetch(`${SUPABASE_URL}/rest/v1/jobs_webhooks`, {
+      const insertRes = await fetch(`${supabaseUrl}/rest/v1/jobs_webhooks`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          apikey: SUPABASE_SERVICE_ROLE_KEY,
-          Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+          apikey: supabaseKey,
+          Authorization: `Bearer ${supabaseKey}`,
         },
         body: JSON.stringify(jobData),
       });
