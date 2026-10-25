@@ -716,11 +716,11 @@ const fetchRegisteredCompaniesFromSupabase = async () => {
 
   try {
     const response = await axios.get(
-      `${SUPABASE_URL.replace(/\/+$/, '')}/rest/v1/trucky_companies?select=company_id,name&order=company_id.asc`,
+      `${supabaseUrl}/rest/v1/trucky_companies?select=company_id,name&order=company_id.asc`,
       {
         headers: {
-          apikey: getSupabaseKey(),
-          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+          apikey: supabaseKey,
+          Authorization: `Bearer ${supabaseKey}`,
         },
         timeout: 15000,
       }
@@ -858,11 +858,11 @@ const fetchLiveJobsFromSupabase = async ({ cutoffMs, companyMap }) => {
 
   while (true) {
     const response = await axios.get(
-      `${SUPABASE_URL.replace(/\/+$/, '')}/rest/v1/jobs_webhooks?status=eq.in_progress&select=job_id,company_id,status,source_city_id,destination_city_id,cargo_id,planned_distance_km,created_at,updated_at,raw&order=updated_at.desc&limit=${pageSize}&offset=${offset}`,
+      `${supabaseUrl}/rest/v1/jobs_webhooks?status=eq.in_progress&select=job_id,company_id,status,source_city_id,destination_city_id,cargo_id,planned_distance_km,created_at,updated_at,raw&order=updated_at.desc&limit=${pageSize}&offset=${offset}`,
       {
         headers: {
-          apikey: getSupabaseKey(),
-          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+          apikey: supabaseKey,
+          Authorization: `Bearer ${supabaseKey}`,
         },
         timeout: 20000,
       }
