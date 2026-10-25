@@ -349,6 +349,32 @@ router.post("/", async (req, res) => {
       return res.status(500).json({ error: "Falta configurar SUPABASE_URL o SUPABASE_SERVICE_ROLE_KEY" });
     }
 
+    // Si el backend es PeruServer (api-data.peruserver.de), delegar directamente al endpoint nativo del webhook
+    // que maneja inserción y actualización sin requerir la cláusula ON CONFLICT de la emulación PostgREST
+    if (supabaseUrl.includes("peruserver")) {
+      const upstreamRes = await fetch(`${supabaseUrl}/v2/peruserver/trucky/webhook`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-client": req.headers["x-client"],
+          "user-agent": req.headers["user-agent"],
+          "x-trucky-company-id": companyId,
+          ...(supabaseKey ? { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}` } : {}),
+        },
+        body: JSON.stringify(req.body),
+      });
+
+      const responseText = await upstreamRes.text();
+      let responseData;
+      try {
+        responseData = JSON.parse(responseText);
+      } catch {
+        responseData = { message: responseText };
+      }
+
+      return res.status(upstreamRes.status).json(responseData);
+    }
+
     const companyRes = await fetch(
       `${supabaseUrl}/rest/v1/trucky_companies?company_id=eq.${companyId}`,
       {
@@ -454,7 +480,30 @@ router.post("/", async (req, res) => {
       });
       if (!insertRes.ok) {
         const error = await insertRes.text();
-        console.error("Failed to insert job data:", error);
+        console.error("Failed to insert job data via /rest/v1:", error);
+
+        // Fallback al webhook nativo de PeruServer si está disponible
+        try {
+          const fallbackRes = await fetch(`${supabaseUrl}/v2/peruserver/trucky/webhook`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "x-client": req.headers["x-client"],
+              "user-agent": req.headers["user-agent"],
+              "x-trucky-company-id": companyId,
+              ...(supabaseKey ? { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}` } : {}),
+            },
+            body: JSON.stringify(req.body),
+          });
+
+          if (fallbackRes.ok) {
+            const fallbackData = await fallbackRes.json();
+            return res.status(fallbackRes.status).json(fallbackData);
+          }
+        } catch (fallbackErr) {
+          console.error("Fallback to native webhook failed:", fallbackErr);
+        }
+
         return res.status(500).json({ error: "Failed to insert", details: error });
       }
       return res.status(200).json({ ok: true, inserted: true });
